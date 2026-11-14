@@ -1,9 +1,10 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
-    <PropertyGroup>
-        <TargetFramework>net11.0</TargetFramework>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <Nullable>enable</Nullable>
-    </PropertyGroup>
-
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<AssemblyName>Injectra.Core</AssemblyName>
+		<RootNamespace>Injectra</RootNamespace>
+		<PackageId>Injectra.Core</PackageId>
+		<Description>A lightweight dependency injection library for .NET.</Description>
+		<RepositoryUrl>https://github.com/UnknownProgers/Injectra</RepositoryUrl>
+		<Version>0.1.0-dev</Version>
+	</PropertyGroup>
 </Project>
