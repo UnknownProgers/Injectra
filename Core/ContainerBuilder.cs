@@ -10,6 +10,25 @@ public sealed class ContainerBuilder
 {
 	private readonly List<IRegistrationBuilder> _registrations = [];
 	private bool _built;
+	private readonly Container? _parent;
+	private bool _configuringChild;
+
+	/// <summary>Creates a builder for a root container.</summary>
+	public ContainerBuilder()
+	{
+	}
+
+	internal ContainerBuilder(Container parent)
+	{
+		_parent = parent;
+		_configuringChild = true;
+	}
+
+	internal Container BuildChild()
+	{
+		_configuringChild = false;
+		return Build();
+	}
 
 	/// <summary>Registers a type for constructor-based creation.</summary>
 	/// <typeparam name="T">The implementation type to register.</typeparam>
@@ -34,7 +53,7 @@ public sealed class ContainerBuilder
 		return Add<T>(lifetime, factory);
 	}
 
-	/// <summary>Registers an existing instance that is returned for every resolution of its contracts.</summary>
+	/// <summary>Registers an existing instance, externally owned unless ownership is explicitly transferred.</summary>
 	/// <typeparam name="T">The type whose contracts can be exposed.</typeparam>
 	/// <param name="instance">The instance to register.</param>
 	/// <returns>A builder for selecting the service contracts exposed by this instance.</returns>
@@ -48,97 +67,69 @@ public sealed class ContainerBuilder
 
 	/// <summary>Validates registrations and creates a container without invoking constructors or factories.</summary>
 	/// <returns>A container with fixed registrations and prepared constructor dependencies.</returns>
-	/// <exception cref="InvalidOperationException">This builder has already built a container successfully.</exception>
+	/// <exception cref="InvalidOperationException">This builder has already built successfully, or Build is called inside a CreateChild configuration callback.</exception>
 	/// <exception cref="RegistrationException">
 	/// A contract is registered more than once; a registration replaces the reserved <see cref="IResolver"/> contract;
 	/// a constructor-based implementation is not concrete or does not have exactly one public constructor;
-	/// or the constructor dependency graph contains a missing dependency or a cycle.
+	/// the constructor dependency graph contains a missing dependency or a cycle; or an ancestor instance is transferred to a child.
 	/// </exception>
-	/// <remarks>A successful build clears and locks the builder and its registration builders.</remarks>
+	/// <exception cref="ObjectDisposedException">The parent container has been disposed.</exception>
+	/// <remarks>
+	/// Local constructor graphs and their dependencies are prepared during build.
+	/// Other inherited transient graphs are prepared when requested.
+	/// A successful build clears and locks the builder and its registration builders.
+	/// Existing instances remain externally owned unless OwnedByContainer is selected.
+	/// </remarks>
 	public Container Build()
 	{
 		EnsureMutable();
-		var entries = _registrations.Select(draft => new BuildEntry(draft.Snapshot())).ToArray();
-		var contracts = CollectContracts(entries);
-		LinkAndValidate(entries, contracts);
+		if (_configuringChild)
+			throw new InvalidOperationException("CreateChild builds the child after configuration.");
 
-		var container = new Container(contracts.ToDictionary(pair => pair.Key, pair => pair.Value.Binding));
-		var resolverBinding = new Binding(typeof(IResolver), Lifetime.Singleton, container);
-		foreach (var entry in entries)
-			PrepareActivation(entry, resolverBinding);
-
-		Complete();
-		return container;
-	}
-
-	private static Dictionary<Type, BuildEntry> CollectContracts(BuildEntry[] entries)
-	{
-		var contracts = new Dictionary<Type, BuildEntry>();
-		foreach (var entry in entries)
+		_parent?.ThrowIfDisposed();
+		var registrations = _registrations.Select(draft => draft.Snapshot()).ToArray();
+		var bindings = new Dictionary<Type, Binding>();
+		var container = new Container(bindings, _parent);
+		foreach (var registration in registrations)
 		{
-			foreach (var contract in entry.Registration.Contracts)
+			var binding = new Binding(registration.ImplementationType, registration.Lifetime, registration.Instance) { Owner = container };
+			if (registration.Instance is null)
+			{
+				binding.Activation = registration.Factory is { } factory
+					? new FactoryActivation(factory)
+					: new ConstructorActivation(registration.Constructor!, []);
+			}
+
+			foreach (var contract in registration.Contracts)
 			{
 				if (contract == typeof(IResolver))
 					throw new RegistrationException("IResolver is reserved for the current container.");
 
-				if (!contracts.TryAdd(contract, entry))
+				if (!bindings.TryAdd(contract, binding))
 					throw new RegistrationException($"Service {contract} is already registered.");
 			}
 		}
-		return contracts;
-	}
 
-	private static void LinkAndValidate(BuildEntry[] entries, Dictionary<Type, BuildEntry> contracts)
-	{
-		var visited = new HashSet<BuildEntry>();
-		var path = new List<BuildEntry>();
-		foreach (var entry in entries)
-			Visit(entry, contracts, visited, path);
-	}
-
-	private static void Visit(BuildEntry entry,
-		Dictionary<Type, BuildEntry> contracts,
-		HashSet<BuildEntry> visited,
-		List<BuildEntry> path)
-	{
-		if (visited.Contains(entry))
-			return;
-
-		if (path.Contains(entry))
-			throw new RegistrationException($"Circular dependency: {FormatPath(path, entry.Registration.ImplementationType)}.");
-
-		path.Add(entry);
-		var parameters = entry.Registration.Constructor?.GetParameters() ?? [];
-		entry.Dependencies = new Binding?[parameters.Length];
-		for (var i = 0; i < parameters.Length; i++)
+		container.PrepareBindings();
+		foreach (var registration in registrations)
 		{
-			var type = parameters[i].ParameterType;
-			// A null slot represents the built-in resolver, supplied when the container exists.
-			if (type == typeof(IResolver))
+			if (registration.Instance is not { } instance)
 				continue;
 
-			if (!contracts.TryGetValue(type, out var dependency))
-				throw new RegistrationException($"Service is not registered: {FormatPath(path, type)}.");
-
-			entry.Dependencies[i] = dependency.Binding;
-			Visit(dependency, contracts, visited, path);
+			if (registration.OwnsInstance)
+			{
+				_parent?.EnsureInstanceCanBeOwned(instance);
+				container.RegisterOwnedInstance(instance);
+			}
+			else
+			{
+				container.RegisterExternalInstance(instance);
+			}
 		}
-		path.RemoveAt(path.Count - 1);
-		visited.Add(entry);
-	}
 
-	private static void PrepareActivation(BuildEntry entry, Binding resolverBinding)
-	{
-		var registration = entry.Registration;
-		if (registration.Instance is not null)
-			return;
-
-		entry.Binding.Activation = registration.Factory is { } factory
-			? new FactoryActivation(factory)
-			: new ConstructorActivation(
-				registration.Constructor!,
-				entry.Dependencies.Select(binding => binding ?? resolverBinding).ToArray()
-			);
+		_parent?.AttachChild(container);
+		Complete();
+		return container;
 	}
 
 	private void Complete()
@@ -149,9 +140,6 @@ public sealed class ContainerBuilder
 
 		_registrations.Clear();
 	}
-
-	private static string FormatPath(List<BuildEntry> path, Type type) =>
-		string.Join(" -> ", path.Select(entry => entry.Registration.ImplementationType.Name).Append(type.Name));
 
 	private RegistrationBuilder<T> Add<T>(Lifetime lifetime, Func<IResolver, object>? factory = null, T? instance = null) where T : class
 	{
@@ -168,12 +156,5 @@ public sealed class ContainerBuilder
 	{
 		if (_built)
 			throw new InvalidOperationException("ContainerBuilder has already built a container.");
-	}
-
-	private sealed class BuildEntry(Registration registration)
-	{
-		internal Registration Registration { get; } = registration;
-		internal Binding Binding { get; } = new(registration.ImplementationType, registration.Lifetime, registration.Instance);
-		internal Binding?[] Dependencies { get; set; } = [];
 	}
 }

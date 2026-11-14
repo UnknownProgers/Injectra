@@ -13,6 +13,7 @@ public sealed class RegistrationBuilder<T> : IRegistrationBuilder where T : clas
 	private Func<IResolver, object>? _factory;
 	private T? _instance;
 	private bool _completed;
+	private bool _ownsInstance;
 
 	internal RegistrationBuilder(Lifetime lifetime, Func<IResolver, object>? factory = null, T? instance = null)
 	{
@@ -80,7 +81,8 @@ public sealed class RegistrationBuilder<T> : IRegistrationBuilder where T : clas
 			_contracts.Count == 0 ? [typeof(T)] : _contracts.ToArray(),
 			constructor,
 			_factory,
-			_instance);
+			_instance,
+			_ownsInstance);
 	}
 
 	void IRegistrationBuilder.Complete()
@@ -89,6 +91,27 @@ public sealed class RegistrationBuilder<T> : IRegistrationBuilder where T : clas
 		_factory = null;
 		_instance = null;
 		_contracts.Clear();
+	}
+
+	/// <summary>Transfers responsibility for disposing a registered instance to the container after a successful build.</summary>
+	/// <returns>This registration builder for further configuration.</returns>
+	/// <exception cref="InvalidOperationException">
+	/// This is not an instance registration, or the owning builder has already built successfully.
+	/// </exception>
+	/// <remarks>
+	/// Only instances supplied through RegisterInstance support this method.
+	/// The container disposes the instance when it closes, even if it was never resolved.
+	/// The caller must not dispose it or transfer ownership to another independent container.
+	/// Non-disposable instances require no cleanup. Repeated calls before build have no additional effect.
+	/// </remarks>
+	public RegistrationBuilder<T> OwnedByContainer()
+	{
+		EnsureMutable();
+		if (_instance is null)
+			throw new InvalidOperationException("OwnedByContainer is only supported for RegisterInstance registrations.");
+
+		_ownsInstance = true;
+		return this;
 	}
 
 	private void EnsureMutable()

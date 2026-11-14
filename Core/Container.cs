@@ -2,13 +2,51 @@ using Injectra.Internal.Resolution;
 
 namespace Injectra;
 
-/// <summary>A container intended for use on one thread; concurrent resolution is unsupported.</summary>
-public sealed class Container : IResolver
+/// <summary>A container and its owned singleton services. Concurrent use is unsupported.</summary>
+public sealed class Container : IResolver, IDisposable
 {
+	private Container? _parent;
+	// Local registrations only; ancestors keep their own tables.
 	private readonly Dictionary<Type, Binding> _bindings;
+	private readonly List<Container> _children = [];
 	private readonly List<Binding> _path = [];
+	private readonly HashSet<object> _externalInstances = new(ReferenceEqualityComparer.Instance);
+	private readonly HashSet<object> _ownedInstances = new(ReferenceEqualityComparer.Instance);
+	private readonly List<IDisposable> _disposables = [];
+	private readonly List<Binding> _preparing = [];
+	private readonly Binding _resolverBinding;
+	// Canonical inherited binding -> child plan. Aliases share a single plan.
+	private Dictionary<Binding, Binding>? _inheritedBindings;
+	// Only inherited contracts actually requested by this container.
+	private Dictionary<Type, Binding>? _lookupCache;
 
-	internal Container(Dictionary<Type, Binding> bindings) => _bindings = bindings;
+	private bool _disposed;
+
+	internal Container(Dictionary<Type, Binding> bindings, Container? parent = null)
+	{
+		_bindings = bindings;
+		_parent = parent;
+		_resolverBinding = new Binding(typeof(IResolver), Lifetime.Singleton, this) { Owner = this, Prepared = true };
+	}
+
+	/// <summary>Builds a child container with optional local registrations and inherited parent contracts.</summary>
+	/// <param name="configure">Configures local registrations before the child is built.</param>
+	/// <returns>A child container owned by this container.</returns>
+	/// <exception cref="ObjectDisposedException">This container was disposed.</exception>
+	/// <exception cref="RegistrationException">The child's registrations or constructor graph are invalid.</exception>
+	/// <exception cref="InvalidOperationException">The callback attempts to build its builder directly.</exception>
+	/// <remarks>
+	/// Callback exceptions propagate. Only local registrations are stored directly.
+	/// Inherited contracts are cached on demand. Singletons retain their owner's context;
+	/// transient graphs are prepared for this child and use its overrides.
+	/// </remarks>
+	public Container CreateChild(Action<ContainerBuilder>? configure = null)
+	{
+		ThrowIfDisposed();
+		var builder = new ContainerBuilder(this);
+		configure?.Invoke(builder);
+		return builder.BuildChild();
+	}
 
 	/// <inheritdoc />
 	public T Resolve<T>() => (T)Resolve(typeof(T));
@@ -16,18 +54,122 @@ public sealed class Container : IResolver
 	/// <inheritdoc />
 	public object Resolve(Type serviceType)
 	{
+		ThrowIfDisposed();
 		ArgumentNullException.ThrowIfNull(serviceType);
 		if (serviceType == typeof(IResolver))
 			return this;
 
-		if (!_bindings.TryGetValue(serviceType, out var binding))
-			throw new ResolutionException($"Service is not registered: {FormatPath(serviceType)}.");
+		var binding = FindBinding(serviceType)
+			?? throw new ResolutionException($"Service is not registered: {FormatPath(serviceType)}.");
+		PrepareBinding(binding);
 
 		return ResolveBinding(binding);
 	}
 
+	internal void PrepareBindings()
+	{
+		foreach (var binding in _bindings.Values)
+			PrepareBinding(binding);
+	}
+
+	private Binding? FindParentBinding(Type type)
+	{
+		for (var current = _parent; current is not null; current = current._parent)
+			if (current._bindings.TryGetValue(type, out var binding))
+				return binding;
+
+		return null;
+	}
+
+	private Binding? FindBinding(Type type)
+	{
+		if (type == typeof(IResolver))
+			return _resolverBinding;
+
+		if (_bindings.TryGetValue(type, out var local))
+			return local;
+
+		if (_lookupCache is not null && _lookupCache.TryGetValue(type, out var cached))
+			return cached;
+
+		var parentBinding = FindParentBinding(type);
+		if (parentBinding is null)
+			return null;
+
+		if (parentBinding.Lifetime == Lifetime.Singleton)
+		{
+			(_lookupCache ??= []).Add(type, parentBinding);
+			return parentBinding;
+		}
+
+		if (_inheritedBindings is not null && _inheritedBindings.TryGetValue(parentBinding, out var existing))
+		{
+			(_lookupCache ??= []).TryAdd(type, existing);
+			return existing;
+		}
+
+		var inherited = new Binding(parentBinding.ImplementationType, Lifetime.Transient)
+		{
+			Owner = this,
+			Activation = parentBinding.Activation
+		};
+		// Publish before preparing so recursive dependency edges refer to the same binding.
+		(_inheritedBindings ??= []).Add(parentBinding, inherited);
+
+		try
+		{
+			PrepareBinding(inherited);
+			(_lookupCache ??= []).TryAdd(type, inherited);
+			return inherited;
+		}
+		catch
+		{
+			_inheritedBindings.Remove(parentBinding);
+			throw;
+		}
+	}
+
+	private void PrepareBinding(Binding binding)
+	{
+		if (!ReferenceEquals(binding.Owner, this) || binding.Prepared)
+			return;
+
+		if (_preparing.Contains(binding))
+			throw new RegistrationException($"Circular dependency: {PreparationPath(binding.ImplementationType)}.");
+
+		if (binding.Instance is not null)
+		{
+			binding.Prepared = true;
+			return;
+		}
+
+		_preparing.Add(binding);
+		try
+		{
+			var types = binding.Activation.DependencyTypes;
+			var dependencies = new Binding[types.Count];
+			for (var i = 0; i < types.Count; i++)
+			{
+				var dependency = FindBinding(types[i])
+					?? throw new RegistrationException($"Service is not registered: {PreparationPath(types[i])}.");
+				PrepareBinding(dependency);
+				dependencies[i] = dependency;
+			}
+			binding.Activation = binding.Activation.WithDependencies(dependencies);
+			binding.Prepared = true;
+		}
+		finally
+		{
+			_preparing.RemoveAt(_preparing.Count - 1);
+		}
+	}
+
 	internal object ResolveBinding(Binding binding)
 	{
+		ThrowIfDisposed();
+		if (!ReferenceEquals(binding.Owner, this))
+			return binding.Owner.ResolveBinding(binding);
+
 		if (binding.Instance is { } instance)
 			return instance;
 
@@ -35,13 +177,14 @@ public sealed class Container : IResolver
 			throw new ResolutionException($"Circular dependency: {FormatPath(binding.ImplementationType)}.");
 
 		_path.Add(binding);
-
 		try
 		{
 			instance = binding.Activation.Create(this);
 			if (binding.Lifetime == Lifetime.Singleton)
+			{
+				TrackOwned(instance);
 				binding.Instance = instance;
-
+			}
 			return instance;
 		}
 		finally
@@ -49,6 +192,109 @@ public sealed class Container : IResolver
 			_path.RemoveAt(_path.Count - 1);
 		}
 	}
+
+	internal void RegisterExternalInstance(object instance)
+	{
+		if (!_ownedInstances.Contains(instance))
+			_externalInstances.Add(instance);
+	}
+
+	internal void EnsureInstanceCanBeOwned(object instance)
+	{
+		for (var container = this; container is not null; container = container._parent)
+			if (container._externalInstances.Contains(instance) || container._ownedInstances.Contains(instance))
+				throw new RegistrationException("An instance already managed by an ancestor cannot transfer ownership to a child.");
+	}
+
+	internal void RegisterOwnedInstance(object instance)
+	{
+		_externalInstances.Remove(instance);
+		TrackOwned(instance);
+	}
+
+	private void TrackOwned(object instance)
+	{
+		// Never claim an instance already managed by an ancestor or registered as external here.
+		for (var container = this; container is not null; container = container._parent)
+			if (container._externalInstances.Contains(instance) || container._ownedInstances.Contains(instance))
+				return;
+
+		_ownedInstances.Add(instance);
+		if (instance is IDisposable disposable)
+			_disposables.Add(disposable);
+	}
+
+	internal void AttachChild(Container child)
+	{
+		ThrowIfDisposed();
+		_children.Add(child);
+	}
+
+	internal void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+
+	/// <summary>Disposes children, then owned instances in reverse acquisition order, and releases container references.</summary>
+	/// <exception cref="AggregateException">One or more owned objects failed to dispose; remaining cleanup still runs.</exception>
+	/// <exception cref="InvalidOperationException">This container or a descendant is currently creating a service.</exception>
+	/// <remarks>Repeated calls do nothing. Transients and externally owned instances are not disposed. Resolution is forbidden during cleanup.</remarks>
+	public void Dispose()
+	{
+		if (_disposed)
+			return;
+
+		EnsureNotResolving();
+		_disposed = true;
+		List<Exception>? errors = null;
+		var children = _children.ToArray();
+		_children.Clear();
+
+		for (var i = children.Length - 1; i >= 0; i--)
+		{
+			try
+			{
+				children[i].Dispose();
+			}
+			catch (Exception exception)
+			{
+				(errors ??= []).Add(exception);
+			}
+		}
+
+		for (var i = _disposables.Count - 1; i >= 0; i--)
+		{
+			try
+			{
+				_disposables[i].Dispose();
+			}
+			catch (Exception exception)
+			{
+				(errors ??= []).Add(exception);
+			}
+		}
+
+		_disposables.Clear();
+		_ownedInstances.Clear();
+		_externalInstances.Clear();
+		_bindings.Clear();
+		_inheritedBindings?.Clear();
+		_lookupCache?.Clear();
+		_parent?._children.Remove(this);
+		_parent = null;
+
+		if (errors is not null)
+			throw new AggregateException(errors);
+	}
+
+	private void EnsureNotResolving()
+	{
+		if (_path.Count != 0)
+			throw new InvalidOperationException("A container cannot be disposed while it is creating a service.");
+
+		foreach (var child in _children)
+			child.EnsureNotResolving();
+	}
+
+	private string PreparationPath(Type type) => string.Join(" -> ",
+		_preparing.Select(binding => binding.ImplementationType.Name).Append(type.Name));
 
 	internal string FormatPath(Type? requested = null)
 	{

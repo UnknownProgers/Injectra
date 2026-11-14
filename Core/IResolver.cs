@@ -9,6 +9,7 @@ public interface IResolver
 	/// <exception cref="ResolutionException">
 	/// A requested service is not registered, a dynamic dependency cycle is detected, or a factory returns null.
 	/// </exception>
+	/// <exception cref="ObjectDisposedException">The container was disposed.</exception>
 	/// <remarks>Exceptions from user constructors and factories propagate without being wrapped.</remarks>
 	T Resolve<T>();
 
@@ -19,6 +20,7 @@ public interface IResolver
 	/// <exception cref="ResolutionException">
 	/// A requested service is not registered, a dynamic dependency cycle is detected, or a factory returns null.
 	/// </exception>
+	/// <exception cref="ObjectDisposedException">The container was disposed.</exception>
 	/// <remarks>Exceptions from user constructors and factories propagate without being wrapped.</remarks>
 	object Resolve(Type serviceType);
 }

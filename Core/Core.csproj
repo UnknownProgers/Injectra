@@ -6,6 +6,6 @@
 		<PackageId>Injectra.Core</PackageId>
 		<Description>A lightweight dependency injection library for .NET.</Description>
 		<RepositoryUrl>https://github.com/UnknownProgers/Injectra</RepositoryUrl>
-		<Version>0.1.0-alpha.1</Version>
+		<Version>0.2.0-alpha.1</Version>
 	</PropertyGroup>
 </Project>

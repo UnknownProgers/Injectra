@@ -8,4 +8,5 @@ internal sealed record Registration(
 	Type[] Contracts,
 	ConstructorInfo? Constructor,
 	Func<IResolver, object>? Factory,
-	object? Instance);
+	object? Instance,
+	bool OwnsInstance = false);
