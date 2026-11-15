@@ -6,11 +6,11 @@ using GroveGames.DependencyInjection;
 
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Injectra.Benchmarks.Comparison.GroveStyle;
+namespace Injectra.Benchmarks.Comparison;
 
 // Mirrors Grove 0.8.1 sandbox/DotnetBenchmark; build methods intentionally exclude disposal.
 [MemoryDiagnoser]
-public class GroveStyleBenchmarks
+public class ContainerComparisonBenchmarks
 {
 	private Injectra.Container _injectra = null!;
 	private IContainer _container = null!;

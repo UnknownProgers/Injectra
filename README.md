@@ -12,7 +12,7 @@ Currently in alpha. Targets .NET 11; building the repository requires the SDK sp
 ## Features
 
 - Fluent registrations: constructors, factories, existing instances, and multiple contracts.
-- Singleton and transient lifetimes.
+- Singleton and transient lifetimes, with optional `.NonLazy()` singleton creation during build.
 - Child containers with local overrides and lazy preparation of inherited transient graphs.
 - Open generic registrations, closed on demand.
 - Source-generated constructor calls for supported types, with a reflection fallback.
@@ -56,8 +56,8 @@ public sealed class Player(IInput input)
 
 Constructor-based services must have exactly one public constructor. No injection attribute is required.
 
-`Build()` validates and prepares local constructor graphs without running constructors or factories. Instances are created lazily during
-resolution. A successful build consumes the builder: registrations cannot be changed or built again.
+`Build()` validates and prepares local constructor graphs. Services are created lazily during resolution unless explicitly marked
+`.NonLazy()`. A successful build consumes the builder: registrations cannot be changed or built again.
 
 ### Contracts and lifetimes
 
@@ -80,6 +80,27 @@ var keyboard = container.Resolve<KeyboardInput>();
 |-------------|-------------------------------------------------------------------------------------------------|
 | `Singleton` | One instance per registration, shared with descendants and owned by the container declaring it. |
 | `Transient` | A new instance for each resolution. The container does not retain or dispose it.                |
+
+### Eager singleton creation
+
+Use `.NonLazy()` to create a singleton and its dependencies during `Build()`, after registration validation and dependency preparation:
+
+```csharp
+var builder = new ContainerBuilder();
+builder.Register<KeyboardInput>(Lifetime.Singleton).As<IInput>();
+builder.Register<Player>(Lifetime.Singleton)
+	.NonLazy();
+
+using var container = builder.Build();
+var player = container.Resolve<Player>();
+// Player was already created by Build(); Resolve returns that same instance.
+```
+
+Only singletons can be marked `.NonLazy()`. Open generic definitions cannot be marked eager; register a closed type instead. Existing instances are already created, so the marker has no additional effect on them. This controls creation, not lifecycle callbacks.
+
+Eager roots are requested in registration order; constructor dependencies are created first as needed. Child containers create only their own eager registrations. Inherited singletons remain owned by their declaring container.
+
+Validation failures leave the builder mutable. Once eager creation starts, the builder is consumed even if a constructor or factory fails. On failure, the container and its owned instances are disposed; externally owned instances are left alone. If cleanup also fails, both failures are reported in an `AggregateException`.
 
 ### Factories
 
@@ -174,7 +195,7 @@ in [Core.Tests.csproj](Tests/Core.Tests/Core.Tests.csproj).
 
 Latest recorded comparison
 using [Grove's benchmark scenarios](https://github.com/grovegs/DependencyInjection/blob/9bac3d464f38057127b0c904545e5c056a415728/sandbox/DotnetBenchmark/ResolveBenchmark.cs),
-with equivalent Injectra registrations. The implementation is in [GroveStyleBenchmarks.cs](Benchmarks/Comparison/GroveStyleBenchmarks.cs).
+with equivalent Injectra registrations. The implementation is in [ContainerComparisonBenchmarks.cs](Benchmarks/Comparison/ContainerComparisonBenchmarks.cs).
 
 | Benchmark                                   |    Injectra |    Grove | Microsoft DI |
 |---------------------------------------------|------------:|---------:|-------------:|
@@ -203,6 +224,6 @@ Run the same short comparison from the repository root:
 
 ```sh
 dotnet run --project Benchmarks -c Release -- \
-	--filter '*GroveStyleBenchmarks*' \
+	--filter '*ContainerComparisonBenchmarks*' \
 	--job short --iterationCount 5 --iterationTime 100 --warmupCount 3
 ```

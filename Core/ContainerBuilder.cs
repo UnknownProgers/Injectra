@@ -1,10 +1,11 @@
 using Injectra.Internal.Activation;
+using Injectra.Internal.Registration;
 using Injectra.Internal.Resolution;
 
 namespace Injectra;
 
 /// <summary>Collects registrations and builds a container once.</summary>
-/// <remarks>This builder is not thread-safe. A failed build can be corrected and retried.</remarks>
+/// <remarks>This builder is not thread-safe. Validation failures can be corrected and retried; eager activation failures consume the builder.</remarks>
 public sealed class ContainerBuilder
 {
 	private readonly List<RegistrationBuilder> _registrations = [];
@@ -73,7 +74,7 @@ public sealed class ContainerBuilder
 		return Add(typeof(T), Lifetime.Singleton, instance: instance);
 	}
 
-	/// <summary>Validates registrations and creates a container without invoking constructors or factories.</summary>
+	/// <summary>Validates registrations, prepares dependencies, and creates explicitly NonLazy singletons.</summary>
 	/// <returns>A container with fixed registrations and prepared constructor dependencies.</returns>
 	/// <exception cref="InvalidOperationException">This builder has already built successfully, or Build is called inside a CreateChild configuration callback.</exception>
 	/// <exception cref="RegistrationException">
@@ -82,10 +83,14 @@ public sealed class ContainerBuilder
 	/// the constructor dependency graph contains a missing dependency or a cycle; or an ancestor instance is transferred to a child.
 	/// </exception>
 	/// <exception cref="ObjectDisposedException">The parent container has been disposed.</exception>
+	/// <exception cref="ResolutionException">Eager creation encounters a dynamic dependency cycle or a factory returns null.</exception>
+	/// <exception cref="AggregateException">Eager creation fails and disposal of the failed container also fails.</exception>
 	/// <remarks>
-	/// Local constructor graphs and their dependencies are prepared during build.
+	/// Local constructor graphs and their dependencies are prepared before eager creation.
 	/// Other inherited transient graphs are prepared when requested.
-	/// A successful build clears and locks the builder and its registration builders.
+	/// The builder is cleared and locked before eager creation starts. Validation failures can be retried;
+	/// eager activation failures consume the builder and dispose the failed container.
+	/// User constructor and factory exceptions propagate unchanged unless cleanup also fails.
 	/// Existing instances remain externally owned unless OwnedByContainer is selected.
 	/// </remarks>
 	public Container Build()
@@ -98,8 +103,10 @@ public sealed class ContainerBuilder
 		var registrations = _registrations.Select(draft => draft.Snapshot()).ToArray();
 		var bindings = new Dictionary<RuntimeTypeHandle, Binding>();
 		var container = new Container(bindings, _parent);
+		var hasNonLazy = false;
 		foreach (var registration in registrations)
 		{
+			hasNonLazy |= registration.NonLazy;
 			var binding = new Binding(registration.ImplementationType, registration.Lifetime, registration.Instance) { Owner = container };
 			if (registration.Instance is null)
 			{
@@ -137,7 +144,33 @@ public sealed class ContainerBuilder
 
 		_parent?.AttachChild(container);
 		Complete();
+
+		if (hasNonLazy)
+			CreateNonLazyInstances(container, registrations);
+
 		return container;
+	}
+
+	private static void CreateNonLazyInstances(Container container, Registration[] registrations)
+	{
+		try
+		{
+			foreach (var registration in registrations)
+				if (registration.NonLazy)
+					container.Resolve(registration.Contracts[0]);
+		}
+		catch (Exception activationError)
+		{
+			try
+			{
+				container.Dispose();
+			}
+			catch (Exception cleanupError)
+			{
+				throw new AggregateException("Eager creation and container cleanup failed.", activationError, cleanupError);
+			}
+			throw;
+		}
 	}
 
 	private void Complete()

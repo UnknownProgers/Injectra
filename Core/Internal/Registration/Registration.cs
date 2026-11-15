@@ -9,4 +9,5 @@ internal sealed record Registration(
 	IActivation? Activation,
 	Func<IResolver, object>? Factory,
 	object? Instance,
-	bool OwnsInstance = false);
+	bool OwnsInstance = false,
+	bool NonLazy = false);

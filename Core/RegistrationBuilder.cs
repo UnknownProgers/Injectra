@@ -14,6 +14,7 @@ public sealed class RegistrationBuilder
 	private readonly Type _implementationType;
 	private bool _completed;
 	private bool _ownsInstance;
+	private bool _nonLazy;
 
 	internal RegistrationBuilder(Type implementationType, Lifetime lifetime, Func<IResolver, object>? factory = null, object? instance = null)
 	{
@@ -66,6 +67,29 @@ public sealed class RegistrationBuilder
 		return this;
 	}
 
+	/// <summary>Creates this singleton during Build, after registration validation and dependency preparation.</summary>
+	/// <returns>This registration builder.</returns>
+	/// <exception cref="InvalidOperationException">
+	/// The builder is complete, the lifetime is not Singleton, or the implementation is an open generic definition.
+	/// </exception>
+	/// <remarks>
+	/// Eager registrations are resolved in registration order, with dependencies created as needed.
+	/// Repeated calls have no additional effect. Existing instances are already created.
+	/// This marker does not invoke lifecycle callbacks.
+	/// </remarks>
+	public RegistrationBuilder NonLazy()
+	{
+		EnsureMutable();
+		if (_lifetime != Lifetime.Singleton)
+			throw new InvalidOperationException("NonLazy is only supported for singleton registrations.");
+
+		if (_implementationType.IsGenericTypeDefinition)
+			throw new InvalidOperationException("An open generic registration cannot be NonLazy. Register a closed type instead.");
+
+		_nonLazy = true;
+		return this;
+	}
+
 	private void AddContract(Type contract)
 	{
 		if (_contracts.Contains(contract))
@@ -86,7 +110,8 @@ public sealed class RegistrationBuilder
 			activation,
 			_factory,
 			_instance,
-			_ownsInstance);
+			_ownsInstance,
+			_nonLazy);
 	}
 
 	internal void Complete()
@@ -97,13 +122,14 @@ public sealed class RegistrationBuilder
 		_contracts.Clear();
 	}
 
-	/// <summary>Transfers responsibility for disposing a registered instance to the container after a successful build.</summary>
+	/// <summary>Transfers responsibility for disposing a registered instance to the container.</summary>
 	/// <returns>This registration builder for further configuration.</returns>
 	/// <exception cref="InvalidOperationException">
 	/// This is not an instance registration, or the owning builder has already built successfully.
 	/// </exception>
 	/// <remarks>
 	/// Only instances supplied through RegisterInstance support this method.
+	/// Ownership transfers before eager creation; if eager creation fails, cleanup disposes the instance.
 	/// The container disposes the instance when it closes, even if it was never resolved.
 	/// The caller must not dispose it or transfer ownership to another independent container.
 	/// Non-disposable instances require no cleanup. Repeated calls before build have no additional effect.
