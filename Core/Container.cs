@@ -8,27 +8,27 @@ public sealed class Container : IResolver, IDisposable
 {
 	private Container? _parent;
 	// Local registrations only; ancestors keep their own tables.
-	private readonly Dictionary<RuntimeTypeHandle, Binding> _bindings;
+	private readonly Dictionary<RuntimeTypeHandle, Binding[]> _bindings;
 	private readonly List<Container> _children = [];
 	private readonly List<Binding> _path = [];
 	private readonly HashSet<object> _externalInstances = new(ReferenceEqualityComparer.Instance);
 	private readonly HashSet<object> _ownedInstances = new(ReferenceEqualityComparer.Instance);
 	private readonly List<IDisposable> _disposables = [];
 	private readonly List<Binding> _preparing = [];
-	private readonly Binding _resolverBinding;
+	private readonly Binding[] _resolverBindings;
 	// Canonical inherited binding -> child plan. Aliases share a single plan.
 	private Dictionary<Binding, Binding>? _inheritedBindings;
 	// Inherited and closed generic contracts requested by this container.
-	private Dictionary<RuntimeTypeHandle, Binding>? _lookupCache;
+	private Dictionary<RuntimeTypeHandle, Binding[]>? _lookupCache;
 
 	private Dictionary<(Binding Definition, Type Implementation), Binding>? _closedGenerics;
 	private bool _disposed;
 
-	internal Container(Dictionary<RuntimeTypeHandle, Binding> bindings, Container? parent = null)
+	internal Container(Dictionary<RuntimeTypeHandle, Binding[]> bindings, Container? parent = null)
 	{
 		_bindings = bindings;
 		_parent = parent;
-		_resolverBinding = new Binding(typeof(IResolver), Lifetime.Singleton, this) { Owner = this, Prepared = true };
+		_resolverBindings = [new Binding(typeof(IResolver), Lifetime.Singleton, this) { Owner = this, Prepared = true }];
 	}
 
 	/// <summary>Builds a child container with optional local registrations and inherited parent contracts.</summary>
@@ -54,7 +54,7 @@ public sealed class Container : IResolver, IDisposable
 	public T Resolve<T>()
 	{
 		ThrowIfDisposed();
-		return (T)ResolveService(typeof(T));
+		return (T)ResolveInternal(typeof(T));
 	}
 
 	/// <inheritdoc />
@@ -62,16 +62,16 @@ public sealed class Container : IResolver, IDisposable
 	{
 		ThrowIfDisposed();
 		ArgumentNullException.ThrowIfNull(serviceType);
-		if (_bindings.TryGetValue(serviceType.TypeHandle, out var local) && local.Prepared)
-			return local.Instance ?? ResolveBinding(local);
+		if (_bindings.TryGetValue(serviceType.TypeHandle, out var local) && local.Length == 1 && local[0].Prepared)
+			return local[0].Instance ?? ResolveBinding(local[0]);
 
 		if (serviceType.ContainsGenericParameters)
 			throw new ResolutionException("An open generic type cannot be resolved directly.");
 
-		return ResolveService(serviceType);
+		return ResolveInternal(serviceType);
 	}
 
-	private object ResolveService(Type serviceType)
+	private object ResolveInternal(Type serviceType)
 	{
 		var binding = FindBinding(serviceType)
 			?? throw new ResolutionException($"Service is not registered: {FormatPath(serviceType)}.");
@@ -84,22 +84,57 @@ public sealed class Container : IResolver, IDisposable
 		return ResolveBinding(binding);
 	}
 
-	internal void PrepareBindings()
+	/// <inheritdoc />
+	public IReadOnlyList<T> ResolveAll<T>()
 	{
-		foreach (var binding in _bindings.Values)
-			PrepareBinding(binding);
+		ThrowIfDisposed();
+		return ResolveAllInternal<T>(typeof(T));
 	}
 
-	private Binding? FindParentBinding(Type type)
+	/// <inheritdoc />
+	public IReadOnlyList<object> ResolveAll(Type serviceType)
+	{
+		ThrowIfDisposed();
+		ArgumentNullException.ThrowIfNull(serviceType);
+		if (serviceType.ContainsGenericParameters)
+			throw new ResolutionException("An open generic type cannot be resolved directly.");
+
+		return ResolveAllInternal<object>(serviceType);
+	}
+
+	private IReadOnlyList<T> ResolveAllInternal<T>(Type serviceType)
+	{
+		var bindings = FindBindings(serviceType);
+		if (bindings is null)
+			return Array.Empty<T>();
+
+		var results = new T[bindings.Length];
+		for (var i = 0; i < bindings.Length; i++)
+		{
+			if (!bindings[i].Prepared)
+				PrepareBinding(bindings[i]);
+
+			results[i] = (T)ResolveBinding(bindings[i]);
+		}
+		return results;
+	}
+
+	internal void PrepareBindings()
+	{
+		foreach (var bindings in _bindings.Values)
+			foreach (var binding in bindings)
+				PrepareBinding(binding);
+	}
+
+	private Binding[]? FindParentBindings(Type type)
 	{
 		for (var current = _parent; current is not null; current = current._parent)
-			if (current.FindLocalBinding(type) is { } binding)
-				return binding;
-
+			if (current.FindLocalBindings(type) is { } bindings)
+				return bindings;
 		return null;
 	}
 
-	private Binding? FindLocalBinding(Type type)
+	private Binding[]? FindLocalBindings(Type type)
 	{
 		if (_bindings.TryGetValue(type.TypeHandle, out var exact))
 			return exact;
@@ -155,9 +190,21 @@ public sealed class Container : IResolver, IDisposable
 
 	private Binding? FindBinding(Type type)
 	{
+		var bindings = FindBindings(type);
+		if (bindings is null)
+			return null;
+
+		if (bindings.Length != 1)
+			throw new ResolutionException($"Multiple registrations for {type}. Use ResolveAll to request all services.");
+
+		return bindings[0];
+	}
+
+	private Binding[]? FindBindings(Type type)
+	{
 		var handle = type.TypeHandle;
 		if (handle.Equals(typeof(IResolver).TypeHandle))
-			return _resolverBinding;
+			return _resolverBindings;
 
 		if (_bindings.TryGetValue(handle, out var local))
 			return local;
@@ -165,23 +212,26 @@ public sealed class Container : IResolver, IDisposable
 		if (_lookupCache is not null && _lookupCache.TryGetValue(handle, out var cached))
 			return cached;
 
-		var source = FindLocalBinding(type) ?? FindParentBinding(type);
+		var source = FindLocalBindings(type) ?? FindParentBindings(type);
 		if (source is null)
 			return null;
 
-		Binding binding;
-		if (source.ImplementationType.IsGenericTypeDefinition)
-			binding = CloseGeneric(source, type);
-		else if (source.Lifetime == Lifetime.Singleton)
-			binding = source;
-		else
-			binding = InheritBinding(source);
+		var bindings = new Binding[source.Length];
+		for (var i = 0; i < source.Length; i++)
+		{
+			var binding = source[i];
+			if (binding.ImplementationType.IsGenericTypeDefinition)
+				bindings[i] = CloseGeneric(binding, type);
+			else if (binding.Lifetime == Lifetime.Singleton)
+				bindings[i] = binding;
+			else
+				bindings[i] = InheritBinding(binding);
+		}
 
-		// Recursive preparation may return an unfinished binding solely for cycle detection.
-		if (binding.Prepared)
-			(_lookupCache ??= []).TryAdd(handle, binding);
+		if (bindings.All(binding => binding.Prepared))
+			(_lookupCache ??= []).TryAdd(handle, bindings);
 
-		return binding;
+		return bindings;
 	}
 
 	private Binding InheritBinding(Binding source)
@@ -230,8 +280,13 @@ public sealed class Container : IResolver, IDisposable
 			var dependencies = new Binding[types.Count];
 			for (var i = 0; i < types.Count; i++)
 			{
-				var dependency = FindBinding(types[i])
+				var candidates = FindBindings(types[i])
 					?? throw new RegistrationException($"Service is not registered: {PreparationPath(types[i])}.");
+
+				if (candidates.Length != 1)
+					throw new RegistrationException($"Multiple registrations for {types[i]}: {PreparationPath(types[i])}.");
+
+				var dependency = candidates[0];
 				PrepareBinding(dependency);
 				dependencies[i] = dependency;
 			}

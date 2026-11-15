@@ -17,7 +17,7 @@ Currently in alpha. Targets .NET 11; building the repository requires the SDK sp
 - Open generic registrations, closed on demand.
 - Source-generated constructor calls for supported types, with a reflection fallback.
 - Explicit ownership of existing instances and automatic disposal of container-owned singletons.
-- Validation of duplicate registrations, missing dependencies, and constructor cycles; dynamic factory cycles are detected during
+- Validation of duplicate concrete registrations, missing or ambiguous dependencies, and constructor cycles; dynamic factory cycles are detected during
   resolution.
 - No Godot or Unity dependency. Concurrent container use is unsupported.
 
@@ -80,6 +80,17 @@ var keyboard = container.Resolve<KeyboardInput>();
 |-------------|-------------------------------------------------------------------------------------------------|
 | `Singleton` | One instance per registration, shared with descendants and owned by the container declaring it. |
 | `Transient` | A new instance for each resolution. The container does not retain or dispose it.                |
+
+### Interface registrations
+
+Use `.AsImplementedInterfaces()` to expose every implemented interface, including inherited ones. Add `.AsSelf()` to retain
+access through the concrete type. This does not change ownership. For open generic types, all interfaces must support positional
+mapping; unsupported mappings are rejected without partially changing the registration.
+
+Several registrations may expose the same interface. `container.ResolveAll<IInput>()` returns all matching registrations with their
+individual lifetimes. A single `Resolve<IInput>()` throws if the contract is ambiguous; ambiguous constructor dependencies fail during
+graph preparation. Unregistered closed contracts return an empty list from `ResolveAll`. Duplicate concrete registrations remain invalid.
+A child with local registrations overrides the inherited set rather than merging with it. Result order is unspecified.
 
 ### Eager singleton creation
 

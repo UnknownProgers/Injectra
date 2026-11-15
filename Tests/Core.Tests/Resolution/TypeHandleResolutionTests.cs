@@ -17,13 +17,15 @@ public sealed class TypeHandleResolutionTests
 	}
 
 	[Fact]
-	public void WrappedContractCannotBypassDuplicateRegistrationValidation()
+	public void WrappedContractUsesTheSameRegistrationGroup()
 	{
 		var builder = new ContainerBuilder();
 		builder.Register<Service>(Lifetime.Singleton).As<IService>();
 		builder.Register<Service>(Lifetime.Singleton).As(new TypeDelegator(typeof(IService)));
 
-		Assert.Throws<RegistrationException>(() => builder.Build());
+		using var container = builder.Build();
+		Assert.Equal(2, container.ResolveAll<IService>().Count);
+		Assert.Throws<ResolutionException>(() => container.Resolve<IService>());
 	}
 
 	[Fact]

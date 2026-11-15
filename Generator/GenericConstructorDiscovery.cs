@@ -87,7 +87,7 @@ internal static class GenericConstructorDiscovery
 
 		var registration = method.Name == KnownNames.RegisterMethod &&
 			SymbolEqualityComparer.Default.Equals(method.ContainingType, core.GetTypeByMetadataName(KnownNames.ContainerBuilder));
-		var resolution = method.Name == KnownNames.ResolveMethod &&
+		var resolution = (method.Name == KnownNames.ResolveMethod || method.Name == KnownNames.ResolveAllMethod) &&
 			(SymbolEqualityComparer.Default.Equals(method.ContainingType, core.GetTypeByMetadataName(KnownNames.Container)) ||
 				SymbolEqualityComparer.Default.Equals(method.ContainingType, core.GetTypeByMetadataName(KnownNames.Resolver)));
 		if (!registration && !resolution)

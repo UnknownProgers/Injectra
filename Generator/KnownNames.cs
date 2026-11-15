@@ -13,6 +13,7 @@ internal static class KnownNames
 	internal const string Resolver = "Injectra.IResolver";
 	internal const string RegisterMethod = "Register";
 	internal const string ResolveMethod = "Resolve";
+	internal const string ResolveAllMethod = "ResolveAll";
 	internal const string GeneratedConstructors = "Injectra.Generation.GeneratedConstructors";
 	internal const string RegisterGeneratedConstructor = "Register";
 	internal const string ResolveArgument = "Resolve";

@@ -27,6 +27,31 @@ public sealed class OpenGenericGeneratorTests
 		Assert.Equal(true, Run(result.Compilation));
 	}
 
+	[Fact]
+	public void ResolveAllDiscoversEveryOpenGenericImplementation()
+	{
+		var result = Generate("""
+			using Injectra;
+			public interface IService<T>;
+			public sealed class First<T> : IService<T>;
+			public sealed class Second<T> : IService<T>;
+			public static class Entry
+			{
+				public static bool Run()
+				{
+					var builder = new ContainerBuilder();
+					builder.Register(typeof(First<>), Lifetime.Singleton).AsImplementedInterfaces();
+					builder.Register(typeof(Second<>), Lifetime.Singleton).AsImplementedInterfaces();
+					using var container = builder.Build();
+					return container.ResolveAll<IService<int>>().Count == 2;
+				}
+			}
+			""");
+		Assert.Contains("new global::First<int>()", result.Source);
+		Assert.Contains("new global::Second<int>()", result.Source);
+		Assert.Equal(true, Run(result.Compilation));
+	}
+
 	[Theory]
 	[InlineData("Singleton", "true")]
 	[InlineData("Transient", "false")]

@@ -17,7 +17,7 @@ public sealed class ConstructorGenerator : IIncrementalGenerator
 		var calls = context.SyntaxProvider.CreateSyntaxProvider(
 			static (node, _) => node is InvocationExpressionSyntax invocation &&
 				invocation.Expression is MemberAccessExpressionSyntax member &&
-				member.Name.Identifier.ValueText is KnownNames.RegisterMethod or KnownNames.ResolveMethod,
+				member.Name.Identifier.ValueText is KnownNames.RegisterMethod or KnownNames.ResolveMethod or KnownNames.ResolveAllMethod,
 			static (syntax, _) => (InvocationExpressionSyntax)syntax.Node);
 
 		context.RegisterSourceOutput(calls.Collect().Combine(context.CompilationProvider), static (output, input) =>

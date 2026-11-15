@@ -1,5 +1,4 @@
 using Injectra.Internal.Activation;
-using Injectra.Internal.Registration;
 using Injectra.Internal.Resolution;
 
 namespace Injectra;
@@ -78,9 +77,9 @@ public sealed class ContainerBuilder
 	/// <returns>A container with fixed registrations and prepared constructor dependencies.</returns>
 	/// <exception cref="InvalidOperationException">This builder has already built successfully, or Build is called inside a CreateChild configuration callback.</exception>
 	/// <exception cref="RegistrationException">
-	/// A contract is registered more than once; a registration replaces the reserved <see cref="IResolver"/> contract;
+	/// A concrete contract is registered more than once; a registration replaces the reserved <see cref="IResolver"/> contract;
 	/// a constructor-based implementation is not concrete or does not have exactly one public constructor;
-	/// the constructor dependency graph contains a missing dependency or a cycle; or an ancestor instance is transferred to a child.
+	/// the constructor dependency graph contains a missing or ambiguous dependency or a cycle; or an ancestor instance is transferred to a child.
 	/// </exception>
 	/// <exception cref="ObjectDisposedException">The parent container has been disposed.</exception>
 	/// <exception cref="ResolutionException">Eager creation encounters a dynamic dependency cycle or a factory returns null.</exception>
@@ -101,12 +100,11 @@ public sealed class ContainerBuilder
 
 		_parent?.ThrowIfDisposed();
 		var registrations = _registrations.Select(draft => draft.Snapshot()).ToArray();
-		var bindings = new Dictionary<RuntimeTypeHandle, Binding>();
+		var bindings = new Dictionary<RuntimeTypeHandle, Binding[]>();
 		var container = new Container(bindings, _parent);
-		var hasNonLazy = false;
+		List<Binding>? eager = null;
 		foreach (var registration in registrations)
 		{
-			hasNonLazy |= registration.NonLazy;
 			var binding = new Binding(registration.ImplementationType, registration.Lifetime, registration.Instance) { Owner = container };
 			if (registration.Instance is null)
 			{
@@ -115,13 +113,22 @@ public sealed class ContainerBuilder
 					: registration.Activation!;
 			}
 
+			if (registration.NonLazy)
+				(eager ??= []).Add(binding);
+
+			var registered = new[] { binding };
 			foreach (var contract in registration.Contracts)
 			{
 				if (contract.TypeHandle.Equals(typeof(IResolver).TypeHandle))
 					throw new RegistrationException("IResolver is reserved for the current container.");
 
-				if (!bindings.TryAdd(contract.TypeHandle, binding))
+				if (bindings.TryAdd(contract.TypeHandle, registered))
+					continue;
+
+				if (!contract.IsInterface)
 					throw new RegistrationException($"Service {contract} is already registered.");
+
+				bindings[contract.TypeHandle] = [.. bindings[contract.TypeHandle], binding];
 			}
 		}
 
@@ -145,19 +152,18 @@ public sealed class ContainerBuilder
 		_parent?.AttachChild(container);
 		Complete();
 
-		if (hasNonLazy)
-			CreateNonLazyInstances(container, registrations);
+		if (eager is not null)
+			CreateNonLazyInstances(container, eager);
 
 		return container;
 	}
 
-	private static void CreateNonLazyInstances(Container container, Registration[] registrations)
+	private static void CreateNonLazyInstances(Container container, List<Binding> bindings)
 	{
 		try
 		{
-			foreach (var registration in registrations)
-				if (registration.NonLazy)
-					container.Resolve(registration.Contracts[0]);
+			foreach (var binding in bindings)
+				container.ResolveBinding(binding);
 		}
 		catch (Exception activationError)
 		{

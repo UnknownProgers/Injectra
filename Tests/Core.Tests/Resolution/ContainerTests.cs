@@ -95,12 +95,14 @@ public sealed class ContainerTests
 	}
 
 	[Fact]
-	public void DuplicateContractsAreRejected()
+	public void MultipleInterfaceRegistrationsRequireResolveAll()
 	{
 		var builder = new ContainerBuilder();
 		builder.Register<Weapon>(Lifetime.Singleton).As<IWeapon>();
 		builder.Register<Weapon>(Lifetime.Transient).As<IWeapon>();
-		Assert.Throws<RegistrationException>(() => builder.Build());
+		using var container = builder.Build();
+		Assert.Throws<ResolutionException>(() => container.Resolve<IWeapon>());
+		Assert.Equal(2, container.ResolveAll<IWeapon>().Count);
 	}
 
 	[Fact]
