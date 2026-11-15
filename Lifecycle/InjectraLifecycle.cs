@@ -243,7 +243,7 @@ public sealed class InjectraLifecycle : IDisposable
 		if (_state != State.Ready || _running)
 			throw new InvalidOperationException("Successful initialization and a callback-free lifecycle boundary are required.");
 		if (typeof(TPhase) == typeof(IInitializable) || !_phases.TryGetValue(typeof(TPhase).TypeHandle, out var phase) ||
-			phase.Argument != typeof(TArgument))
+		    phase.Argument != typeof(TArgument))
 			throw new InvalidOperationException($"Phase {typeof(TPhase)} is not registered.");
 
 		_source!.BeginOperation();
@@ -296,5 +296,12 @@ public sealed class InjectraLifecycle : IDisposable
 		_source!.ThrowIfDisposed();
 	}
 
-	private enum State { Configuring, Initializing, Ready, Faulted, Disposed }
+	private enum State
+	{
+		Configuring,
+		Initializing,
+		Ready,
+		Faulted,
+		Disposed
+	}
 }

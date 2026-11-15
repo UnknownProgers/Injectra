@@ -2,16 +2,22 @@
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
 		<IsPackable>false</IsPackable>
+		<DefineConstants Condition="'$(ContainerAssembly)' != ''">$(DefineConstants);CORE_ASSEMBLY_OVERRIDE</DefineConstants>
 		<RootNamespace>Injectra.Benchmarks</RootNamespace>
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="BenchmarkDotNet" Version="0.16.0-preview.2"/>
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0"/>
 		<PackageReference Include="GroveGames.DependencyInjection" Version="0.8.1"/>
+		<ProjectReference Include="../Lifecycle/Lifecycle.csproj" Condition="'$(ContainerAssembly)' == ''"/>
 		<ProjectReference Include="../Core/Core.csproj" Condition="'$(ContainerAssembly)' == ''"/>
 		<Reference Include="Injectra.Core" Condition="'$(ContainerAssembly)' != ''">
 			<HintPath>$(ContainerAssembly)</HintPath>
 		</Reference>
-		<ProjectReference Include="../Generator/Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Condition="'$(ContainerAssembly)' == ''"/>
+		<ProjectReference Include="../Generator/Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"
+						  Condition="'$(ContainerAssembly)' == ''"/>
+	</ItemGroup>
+	<ItemGroup Condition="'$(ContainerAssembly)' != ''">
+		<Compile Remove="LifecycleBenchmarks.cs;LifecycleMeasurements.cs"/>
 	</ItemGroup>
 </Project>

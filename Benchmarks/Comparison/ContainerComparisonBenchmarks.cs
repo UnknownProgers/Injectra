@@ -1,10 +1,7 @@
 using BenchmarkDotNet.Attributes;
-using InjectraBuilder = Injectra.ContainerBuilder;
-
-
 using GroveGames.DependencyInjection;
-
 using Microsoft.Extensions.DependencyInjection;
+using InjectraBuilder = Injectra.ContainerBuilder;
 
 namespace Injectra.Benchmarks.Comparison;
 
@@ -12,7 +9,7 @@ namespace Injectra.Benchmarks.Comparison;
 [MemoryDiagnoser]
 public class ContainerComparisonBenchmarks
 {
-	private Injectra.Container _injectra = null!;
+	private Container _injectra = null!;
 	private IContainer _container = null!;
 	private ServiceProvider _serviceProvider = null!;
 
@@ -62,7 +59,7 @@ public class ContainerComparisonBenchmarks
 	public object InjectraFactory() => _injectra.Resolve(typeof(IFactoryProduct));
 
 	[Benchmark]
-	public Injectra.Container InjectraBuild()
+	public Container InjectraBuild()
 	{
 		var builder = new InjectraBuilder();
 		builder.Register<ServiceA>(Lifetime.Singleton);
@@ -112,30 +109,24 @@ public class ContainerComparisonBenchmarks
 		return services.BuildServiceProvider();
 	}
 }
-
 public sealed class ServiceA
 {
 }
-
 public sealed class ServiceB
 {
 }
-
 public sealed class ServiceC
 {
 }
-
 public sealed class Consumer
 {
 	public Consumer(ServiceA a, ServiceB b, ServiceC c)
 	{
 	}
 }
-
 public interface IFactoryProduct
 {
 }
-
 public sealed class FactoryProduct : IFactoryProduct
 {
 }

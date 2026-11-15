@@ -28,6 +28,7 @@ public sealed class ComparisonTests
 	public void FirstResolveUsesFreshSingletonsForEachSample()
 	{
 		var benchmarks = new FirstResolveComparisonBenchmarks();
+
 		Player[] Sample()
 		{
 			benchmarks.Setup();
@@ -40,6 +41,7 @@ public sealed class ComparisonTests
 				benchmarks.Cleanup();
 			}
 		}
+
 		var first = Sample();
 		var second = Sample();
 		for (var i = 0; i < first.Length; i++)
@@ -71,6 +73,7 @@ public sealed class ComparisonTests
 	public void FirstOpenGenericResolveClosesFreshGraphsForEachSample()
 	{
 		var benchmarks = new FirstOpenGenericComparisonBenchmarks();
+
 		GenericConsumer<int>[] Sample()
 		{
 			benchmarks.Setup();
@@ -83,6 +86,7 @@ public sealed class ComparisonTests
 				benchmarks.Cleanup();
 			}
 		}
+
 		var first = Sample();
 		var second = Sample();
 		for (var i = 0; i < first.Length; i++)

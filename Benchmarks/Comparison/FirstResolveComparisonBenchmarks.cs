@@ -1,6 +1,6 @@
 using BenchmarkDotNet.Attributes;
-using Microsoft.Extensions.DependencyInjection;
 using GroveGames.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using GroveContainer = GroveGames.DependencyInjection.IContainer;
 
 namespace Injectra.Benchmarks.Comparison;
@@ -24,8 +24,10 @@ public class FirstResolveComparisonBenchmarks
 
 	[Benchmark(Baseline = true)]
 	public Player Injectra() => _injectra.Resolve<Player>();
+
 	[Benchmark]
 	public Player Microsoft() => _microsoft.GetRequiredService<Player>();
+
 	[Benchmark]
 	public Player Grove() => _grove.Resolve<Player>();
 

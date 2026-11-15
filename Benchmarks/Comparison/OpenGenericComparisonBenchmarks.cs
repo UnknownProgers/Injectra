@@ -26,11 +26,13 @@ public class OpenGenericComparisonBenchmarks
 
 	[Benchmark(Baseline = true), BenchmarkCategory("Singleton")]
 	public IRepository<int> InjectraSingleton() => _injectra.Resolve<IRepository<int>>();
+
 	[Benchmark, BenchmarkCategory("Singleton")]
 	public IRepository<int> MicrosoftSingleton() => _microsoft.GetRequiredService<IRepository<int>>();
 
 	[Benchmark(Baseline = true), BenchmarkCategory("Graph")]
 	public GenericConsumer<int> InjectraGraph() => _injectra.Resolve<GenericConsumer<int>>();
+
 	[Benchmark, BenchmarkCategory("Graph")]
 	public GenericConsumer<int> MicrosoftGraph() => _microsoft.GetRequiredService<GenericConsumer<int>>();
 
@@ -41,7 +43,6 @@ public class OpenGenericComparisonBenchmarks
 		_injectra.Dispose();
 	}
 }
-
 [MemoryDiagnoser]
 public class FirstOpenGenericComparisonBenchmarks
 {
@@ -57,6 +58,7 @@ public class FirstOpenGenericComparisonBenchmarks
 
 	[Benchmark(Baseline = true)]
 	public GenericConsumer<int> Injectra() => _injectra.Resolve<GenericConsumer<int>>();
+
 	[Benchmark]
 	public GenericConsumer<int> Microsoft() => _microsoft.GetRequiredService<GenericConsumer<int>>();
 

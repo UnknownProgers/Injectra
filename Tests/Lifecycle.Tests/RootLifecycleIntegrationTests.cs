@@ -218,17 +218,32 @@ public sealed class RootLifecycleIntegrationTests
 		Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
 	}
 
-	public interface IPhysics { void Physics(double dt); }
+	public interface IPhysics
+	{
+		void Physics(double dt);
+	}
 	public sealed class FrameOnly : IFrameTickable
 	{
 		private readonly State _state;
-		public FrameOnly(State state) { _state = state; state.Constructions++; }
+
+		public FrameOnly(State state)
+		{
+			_state = state;
+			state.Constructions++;
+		}
+
 		public void FrameTick(double deltaTime) => _state.Ticks++;
 	}
 	public sealed class PhysicsOnly : IPhysics
 	{
 		private readonly State _state;
-		public PhysicsOnly(State state) { _state = state; state.Constructions++; }
+
+		public PhysicsOnly(State state)
+		{
+			_state = state;
+			state.Constructions++;
+		}
+
 		public void Physics(double deltaTime) => _state.PhysicsCalls++;
 	}
 
@@ -240,9 +255,25 @@ public sealed class RootLifecycleIntegrationTests
 	public sealed class Session : IInitializable, IFrameTickable, IPhysics, IDisposable
 	{
 		private readonly State _state;
-		public Session(State state) { _state = state; state.Constructions++; }
-		public void Initialize() { _state.OnInitialize?.Invoke(); _state.Initializations++; }
-		public void FrameTick(double dt) { _state.OnTick?.Invoke(); _state.Ticks++; }
+
+		public Session(State state)
+		{
+			_state = state;
+			state.Constructions++;
+		}
+
+		public void Initialize()
+		{
+			_state.OnInitialize?.Invoke();
+			_state.Initializations++;
+		}
+
+		public void FrameTick(double dt)
+		{
+			_state.OnTick?.Invoke();
+			_state.Ticks++;
+		}
+
 		public void Physics(double dt) => _state.PhysicsCalls++;
 		public void Dispose() => _state.Disposals++;
 	}

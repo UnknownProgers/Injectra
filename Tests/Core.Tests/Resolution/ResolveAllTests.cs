@@ -115,7 +115,10 @@ public sealed class ResolveAllTests
 	}
 
 	public sealed class Token;
-	public interface IService { Token Token { get; } }
+	public interface IService
+	{
+		Token Token { get; }
+	}
 	public sealed class Service(Token token) : IService
 	{
 		public Token Token { get; } = token;

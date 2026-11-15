@@ -5,7 +5,6 @@ internal interface IPhase
 	IReadOnlyList<object> Participants { get; }
 	bool Contains(object participant);
 }
-
 internal sealed class Phase<TParticipant, TArgument> : IPhase where TParticipant : class
 {
 	private readonly TParticipant[] _participants;

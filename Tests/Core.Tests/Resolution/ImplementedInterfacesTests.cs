@@ -74,6 +74,11 @@ public sealed class ImplementedInterfacesTests
 	}
 	public interface IGeneric<T>;
 	public sealed class Generic<T> : IGeneric<T>;
-	public sealed class Invalid<T> : IGeneric<T>, IDisposable { public void Dispose() { } }
+	public sealed class Invalid<T> : IGeneric<T>, IDisposable
+	{
+		public void Dispose()
+		{
+		}
+	}
 	public sealed class Plain;
 }

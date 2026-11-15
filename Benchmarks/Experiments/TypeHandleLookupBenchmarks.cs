@@ -64,7 +64,6 @@ public class TypeHandleLookupBenchmarks
 
 	private sealed class PlainService;
 }
-
 [MemoryDiagnoser]
 public class TypeHandleTableBuildBenchmarks
 {

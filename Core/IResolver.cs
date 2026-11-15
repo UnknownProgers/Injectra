@@ -27,6 +27,7 @@ public interface IResolver
 	/// <exception cref="ObjectDisposedException">The container was disposed.</exception>
 	/// <remarks>Exceptions from user constructors and factories propagate without being wrapped.</remarks>
 	object Resolve(Type serviceType);
+
 	/// <summary>Resolves all registrations of a service contract, or returns an empty list if none exist.</summary>
 	/// <typeparam name="T">The closed service contract.</typeparam>
 	/// <returns>A new result list for registered services, using each registration's lifetime.</returns>
@@ -45,5 +46,4 @@ public interface IResolver
 	/// <exception cref="RegistrationException">A lazily prepared graph is invalid.</exception>
 	/// <remarks>Local registrations override inherited registrations as a group. Result order is unspecified. User exceptions propagate.</remarks>
 	IReadOnlyList<object> ResolveAll(Type serviceType);
-
 }

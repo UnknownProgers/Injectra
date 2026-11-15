@@ -9,7 +9,11 @@ public sealed class NonLazyTests
 	{
 		var calls = 0;
 		var builder = new ContainerBuilder();
-		builder.Register<Resource>(_ => { calls++; return new Resource(); }, Lifetime.Singleton)
+		builder.Register<Resource>(_ =>
+			{
+				calls++;
+				return new Resource();
+			}, Lifetime.Singleton)
 			.As<IDisposable>().NonLazy().AsSelf().NonLazy();
 		builder.Register<Other>(_ => throw new InvalidOperationException("Must remain lazy."), Lifetime.Singleton);
 		Assert.Equal(0, calls);
@@ -38,7 +42,11 @@ public sealed class NonLazyTests
 	{
 		var calls = 0;
 		var builder = new ContainerBuilder();
-		builder.Register<Resource>(_ => { calls++; return new Resource(); }, Lifetime.Singleton).NonLazy();
+		builder.Register<Resource>(_ =>
+		{
+			calls++;
+			return new Resource();
+		}, Lifetime.Singleton).NonLazy();
 		builder.Register<Root>(Lifetime.Singleton);
 		Assert.Throws<RegistrationException>(() => builder.Build());
 		Assert.Equal(0, calls);
@@ -166,7 +174,12 @@ public sealed class NonLazyTests
 	public sealed class Resource(Action? onDispose = null) : IDisposable, IFailure
 	{
 		public int Disposals { get; private set; }
-		public void Dispose() { Disposals++; onDispose?.Invoke(); }
+
+		public void Dispose()
+		{
+			Disposals++;
+			onDispose?.Invoke();
+		}
 	}
 	public sealed class OtherResource(Resource resource) : IDisposable
 	{

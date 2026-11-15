@@ -14,7 +14,6 @@ public sealed class Player(IClock clock, Movement movement)
 	public IClock Clock { get; } = clock;
 	public Movement Movement { get; } = movement;
 }
-
 public interface IRepository<T>;
 public sealed class Repository<T> : IRepository<T>;
 public sealed class GenericConsumer<T>(IRepository<T> repository)

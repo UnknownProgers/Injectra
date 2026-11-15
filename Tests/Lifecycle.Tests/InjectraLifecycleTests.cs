@@ -86,7 +86,11 @@ public sealed class InjectraLifecycleTests
 	{
 		var calls = 0;
 		var expected = new ApplicationException("tick");
-		Action fail = () => { calls++; throw expected; };
+		Action fail = () =>
+		{
+			calls++;
+			throw expected;
+		};
 		using var setup = new LifecycleSetup([
 			new Participant { Ticking = fail }, new Participant { Ticking = fail }
 		]);
@@ -99,12 +103,15 @@ public sealed class InjectraLifecycleTests
 	public void ReentryAndDisposalDuringInitializationAreRejected()
 	{
 		InjectraLifecycle? lifecycle = null;
-		var participant = new Participant { Initializing = () =>
+		var participant = new Participant
 		{
-			Assert.Throws<InvalidOperationException>(() => lifecycle!.Initialize());
-			Assert.Throws<InvalidOperationException>(() => lifecycle!.Tick(0.1));
-			Assert.Throws<InvalidOperationException>(() => lifecycle!.Dispose());
-		} };
+			Initializing = () =>
+			{
+				Assert.Throws<InvalidOperationException>(() => lifecycle!.Initialize());
+				Assert.Throws<InvalidOperationException>(() => lifecycle!.Tick(0.1));
+				Assert.Throws<InvalidOperationException>(() => lifecycle!.Dispose());
+			}
+		};
 		using var setup = new LifecycleSetup([participant]);
 		lifecycle = setup.Lifecycle;
 		lifecycle.Initialize();
@@ -116,12 +123,15 @@ public sealed class InjectraLifecycleTests
 	public void CrossPhaseReentryAndDisposalDuringDispatchAreRejected()
 	{
 		InjectraLifecycle? lifecycle = null;
-		var participant = new Participant { Ticking = () =>
+		var participant = new Participant
 		{
-			Assert.Throws<InvalidOperationException>(() => lifecycle!.Tick(0.1));
-			Assert.Throws<InvalidOperationException>(() => lifecycle!.Dispatch<IPhysicsTick, double>(0.02));
-			Assert.Throws<InvalidOperationException>(() => lifecycle!.Dispose());
-		} };
+			Ticking = () =>
+			{
+				Assert.Throws<InvalidOperationException>(() => lifecycle!.Tick(0.1));
+				Assert.Throws<InvalidOperationException>(() => lifecycle!.Dispatch<IPhysicsTick, double>(0.02));
+				Assert.Throws<InvalidOperationException>(() => lifecycle!.Dispose());
+			}
+		};
 		using var setup = new LifecycleSetup([participant]);
 		lifecycle = setup.Lifecycle;
 		lifecycle.Initialize();
@@ -188,7 +198,9 @@ public sealed class InjectraLifecycleTests
 	public void DisposedOwnerAndManagerReleaseParticipantReferences()
 	{
 		var (lifecycle, weak) = CreateDisposedManager();
-		GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+		GC.Collect();
+		GC.WaitForPendingFinalizers();
+		GC.Collect();
 		Assert.False(weak.IsAlive);
 		GC.KeepAlive(lifecycle);
 	}
@@ -230,6 +242,7 @@ public sealed class InjectraLifecycleTests
 	{
 		private readonly Container _container;
 		public InjectraLifecycle Lifecycle => _container.Resolve<InjectraLifecycle>();
+
 		public LifecycleSetup(object[] participants)
 		{
 			var builder = new ContainerBuilder().UseLifecycle(l =>
@@ -242,10 +255,14 @@ public sealed class InjectraLifecycleTests
 			}
 			_container = builder.Build();
 		}
+
 		public void Dispose() => _container.Dispose();
 	}
 
-	private interface IPhysicsTick { void PhysicsTick(double deltaTime); }
+	private interface IPhysicsTick
+	{
+		void PhysicsTick(double deltaTime);
+	}
 	private interface IUnknown;
 	private sealed class Participant : IInitializable, IFrameTickable, IPhysicsTick, IDisposable
 	{
@@ -253,9 +270,26 @@ public sealed class InjectraLifecycleTests
 		public Action? Ticking;
 		public int Initializations, Frames, PhysicsCalls, Disposals;
 		public double FrameDelta, PhysicsDelta;
-		public void Initialize() { Initializing?.Invoke(); Initializations++; }
-		public void FrameTick(double dt) { Ticking?.Invoke(); Frames++; FrameDelta = dt; }
-		public void PhysicsTick(double dt) { PhysicsCalls++; PhysicsDelta = dt; }
+
+		public void Initialize()
+		{
+			Initializing?.Invoke();
+			Initializations++;
+		}
+
+		public void FrameTick(double dt)
+		{
+			Ticking?.Invoke();
+			Frames++;
+			FrameDelta = dt;
+		}
+
+		public void PhysicsTick(double dt)
+		{
+			PhysicsCalls++;
+			PhysicsDelta = dt;
+		}
+
 		public void Dispose() => Disposals++;
 	}
 	private sealed class EqualParticipant : IFrameTickable

@@ -9,20 +9,20 @@ public sealed class OpenGenericGeneratorTests
 	public void ImplementedInterfacesDiscoverClosedConstructor()
 	{
 		var result = Generate("""
-			using Injectra;
-			public interface IRepository<T>;
-			public sealed class Repository<T> : IRepository<T>;
-			public static class Entry
-			{
-				public static bool Run()
-				{
-					var builder = new ContainerBuilder();
-					builder.Register(typeof(Repository<>), Lifetime.Singleton).AsImplementedInterfaces();
-					using var container = builder.Build();
-					return container.Resolve<IRepository<int>>() is Repository<int>;
-				}
-			}
-			""");
+		                      using Injectra;
+		                      public interface IRepository<T>;
+		                      public sealed class Repository<T> : IRepository<T>;
+		                      public static class Entry
+		                      {
+		                      	public static bool Run()
+		                      	{
+		                      		var builder = new ContainerBuilder();
+		                      		builder.Register(typeof(Repository<>), Lifetime.Singleton).AsImplementedInterfaces();
+		                      		using var container = builder.Build();
+		                      		return container.Resolve<IRepository<int>>() is Repository<int>;
+		                      	}
+		                      }
+		                      """);
 		Assert.Contains("new global::Repository<int>()", result.Source);
 		Assert.Equal(true, Run(result.Compilation));
 	}
@@ -31,22 +31,22 @@ public sealed class OpenGenericGeneratorTests
 	public void ResolveAllDiscoversEveryOpenGenericImplementation()
 	{
 		var result = Generate("""
-			using Injectra;
-			public interface IService<T>;
-			public sealed class First<T> : IService<T>;
-			public sealed class Second<T> : IService<T>;
-			public static class Entry
-			{
-				public static bool Run()
-				{
-					var builder = new ContainerBuilder();
-					builder.Register(typeof(First<>), Lifetime.Singleton).AsImplementedInterfaces();
-					builder.Register(typeof(Second<>), Lifetime.Singleton).AsImplementedInterfaces();
-					using var container = builder.Build();
-					return container.ResolveAll<IService<int>>().Count == 2;
-				}
-			}
-			""");
+		                      using Injectra;
+		                      public interface IService<T>;
+		                      public sealed class First<T> : IService<T>;
+		                      public sealed class Second<T> : IService<T>;
+		                      public static class Entry
+		                      {
+		                      	public static bool Run()
+		                      	{
+		                      		var builder = new ContainerBuilder();
+		                      		builder.Register(typeof(First<>), Lifetime.Singleton).AsImplementedInterfaces();
+		                      		builder.Register(typeof(Second<>), Lifetime.Singleton).AsImplementedInterfaces();
+		                      		using var container = builder.Build();
+		                      		return container.ResolveAll<IService<int>>().Count == 2;
+		                      	}
+		                      }
+		                      """);
 		Assert.Contains("new global::First<int>()", result.Source);
 		Assert.Contains("new global::Second<int>()", result.Source);
 		Assert.Equal(true, Run(result.Compilation));

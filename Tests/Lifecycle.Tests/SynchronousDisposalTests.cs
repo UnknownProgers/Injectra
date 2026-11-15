@@ -254,9 +254,29 @@ public sealed class SynchronousDisposalTests
 	{
 		internal int Initializations, Ticks, PhysicsCalls, Disposals;
 		internal Action? OnInitialize, OnTick, OnPhysics, OnDispose;
-		public void Initialize() { Initializations++; OnInitialize?.Invoke(); }
-		public void FrameTick(double deltaTime) { Ticks++; OnTick?.Invoke(); }
-		public void Physics(double deltaTime) { PhysicsCalls++; OnPhysics?.Invoke(); }
-		public void Dispose() { Disposals++; OnDispose?.Invoke(); }
+
+		public void Initialize()
+		{
+			Initializations++;
+			OnInitialize?.Invoke();
+		}
+
+		public void FrameTick(double deltaTime)
+		{
+			Ticks++;
+			OnTick?.Invoke();
+		}
+
+		public void Physics(double deltaTime)
+		{
+			PhysicsCalls++;
+			OnPhysics?.Invoke();
+		}
+
+		public void Dispose()
+		{
+			Disposals++;
+			OnDispose?.Invoke();
+		}
 	}
 }
