@@ -100,7 +100,7 @@ public sealed class ChildLifecycleIntegrationTests
 	}
 
 	[Fact]
-	public void ChildDisposalDuringDispatchIsRejectedWithoutDamagingExistingChildren()
+	public void ChildDisposalDuringDispatchIsSynchronousAndStopsFutureTicks()
 	{
 		var state = new State();
 		using var root = new ContainerBuilder().UseLifecycle().Build();
@@ -108,14 +108,19 @@ public sealed class ChildLifecycleIntegrationTests
 			b.Register<Session>(_ => new Session(state), Lifetime.Singleton).AsImplementedInterfaces());
 		state.OnTick = () =>
 		{
-			Assert.Throws<InvalidOperationException>(() => child.Dispose());
+			child.Dispose();
+			child.Dispose();
+			Assert.Equal(1, state.Disposals);
+			Assert.Throws<ObjectDisposedException>(() => child.Resolve<IFrameTickable>());
+			Assert.Throws<ObjectDisposedException>(() => child.CreateChild());
 		};
 		var lifecycle = root.Resolve<InjectraLifecycle>();
 		lifecycle.Initialize();
 		lifecycle.Tick(0.1);
+		Assert.Equal(1, state.Ticks);
+		Assert.Equal(1, state.Disposals);
 		lifecycle.Tick(0.1);
-		Assert.Equal(2, state.Ticks);
-		Assert.Equal(0, state.Disposals);
+		Assert.Equal(1, state.Ticks);
 	}
 
 	[Fact]

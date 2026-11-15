@@ -2,35 +2,35 @@ namespace Injectra.Lifecycle.Internal;
 
 internal interface IPhase
 {
-	void Attach(Container container);
-	void Detach(Container container);
+	IReadOnlyList<object> Participants { get; }
+	bool Contains(object participant);
 }
 
-internal sealed class Phase<TParticipant, TArgument>(TParticipant[] participants, Action<TParticipant, TArgument> invoke) : IPhase
-	where TParticipant : class
+internal sealed class Phase<TParticipant, TArgument> : IPhase where TParticipant : class
 {
-	private readonly Participants<TParticipant> _participants = new(participants);
+	private readonly TParticipant[] _participants;
+	private readonly Action<TParticipant, TArgument> _invoke;
+	private readonly HashSet<object> _known;
 
-	public void Attach(Container container) => _participants.Attach(container);
-	public void Detach(Container container) => _participants.Detach(container);
-
-	internal void Dispatch(TArgument argument)
+	internal Phase(Container container, Action<TParticipant, TArgument> invoke)
 	{
-		foreach (var participant in _participants.Root)
-			invoke(participant, argument);
+		_participants = container.ResolveLocalSingletons<TParticipant>();
+		_invoke = invoke;
+		_known = new HashSet<object>(_participants, ReferenceEqualityComparer.Instance);
+		if (_known.Count != _participants.Length)
+			throw new RegistrationException($"The same participant is registered more than once for {typeof(TParticipant)}.");
+	}
 
-		foreach (var (container, members) in _participants.Children)
+	public IReadOnlyList<object> Participants => _participants;
+	public bool Contains(object participant) => _known.Contains(participant);
+
+	internal void Dispatch(Container container, TArgument argument)
+	{
+		foreach (var participant in _participants)
 		{
-			container.BeginOperation();
-			try
-			{
-				foreach (var participant in members)
-					invoke(participant, argument);
-			}
-			finally
-			{
-				container.EndOperation();
-			}
+			if (container.IsDisposed)
+				break;
+			_invoke(participant, argument);
 		}
 	}
 }

@@ -143,19 +143,6 @@ public sealed class Container : IResolver, IDisposable
 		return results;
 	}
 
-	internal void EnsureSingletons(Type contract)
-	{
-		var bindings = FindBindings(contract);
-		if (bindings is null)
-			return;
-
-		foreach (var binding in bindings)
-		{
-			if (binding.Lifetime != Lifetime.Singleton)
-				throw new RegistrationException($"Contract {contract} requires singleton or instance registrations.");
-		}
-	}
-
 	internal T[] ResolveLocalSingletons<T>() where T : class
 	{
 		var bindings = FindLocalBindings(typeof(T));
@@ -438,18 +425,30 @@ public sealed class Container : IResolver, IDisposable
 
 	internal void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
+	private void StopLifecycle()
+	{
+		Closing?.Invoke(this);
+		Closing = null;
+		foreach (var child in _children)
+			child.StopLifecycle();
+	}
+
 	/// <summary>Disposes children, then owned instances in reverse acquisition order, and releases container references.</summary>
 	/// <exception cref="AggregateException">One or more owned objects failed to dispose; remaining cleanup still runs.</exception>
-	/// <exception cref="InvalidOperationException">This container or a descendant is currently creating a service or running a callback.</exception>
-	/// <remarks>Repeated calls do nothing. Transients and externally owned instances are not disposed. Resolution is forbidden during cleanup.</remarks>
+	/// <exception cref="InvalidOperationException">A service is being created in the subtree, or an active operation guards disposal, such as a root lifecycle traversal.</exception>
+	/// <remarks>
+	/// Cleanup is synchronous, including inside child lifecycle callbacks. Do not use disposed services after this call.
+	/// Repeated calls do nothing. Transients and externally owned instances are not disposed.
+	/// Local lifecycle dispatchers in the subtree are stopped before owned services are released.
+	/// </remarks>
 	public void Dispose()
 	{
 		if (_disposed)
 			return;
 
 		EnsureNotResolving();
-		Closing?.Invoke(this);
 		_disposed = true;
+		StopLifecycle();
 		List<Exception>? errors = null;
 		var children = _children.ToArray();
 		_children.Clear();

@@ -10,7 +10,7 @@ public static class LifecycleExtensions
 	/// <exception cref="ArgumentNullException">The builder is null.</exception>
 	/// <exception cref="InvalidOperationException">The builder is complete.</exception>
 	/// <remarks>
-	/// Build creates participants through ResolveAll for the explicitly registered lifecycle contracts.
+	/// Each container has an internal dispatcher for its explicitly registered local lifecycle contracts.
 	/// Participating registrations must be singleton or instance registrations. Initial Initialize remains explicit.
 	/// Custom phases must be registered inside configure. Children automatically join the same manager; attachment requested during callbacks is deferred until the traversal ends.
 	/// Repeated calls cause Build to reject the duplicate manager registration. Configuration exceptions propagate from Build.
