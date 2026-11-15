@@ -1,9 +1,11 @@
 <Solution>
 	<Project Path="Core/Core.csproj"/>
+	<Project Path="Lifecycle/Lifecycle.csproj"/>
 	<Project Path="Generator/Generator.csproj"/>
 	<Project Path="Benchmarks/Benchmarks.csproj"/>
 	<Folder Name="/Tests/">
 		<Project Path="Tests/Core.Tests/Core.Tests.csproj"/>
+		<Project Path="Tests/Lifecycle.Tests/Lifecycle.Tests.csproj"/>
 		<Project Path="Tests/Generator.Tests/Generator.Tests.csproj"/>
 		<Project Path="Tests/Benchmarks.Tests/Benchmarks.Tests.csproj"/>
 	</Folder>

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<AssemblyName>Injectra.Lifecycle</AssemblyName>
+		<RootNamespace>Injectra.Lifecycle</RootNamespace>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<PackageId>Injectra.Lifecycle</PackageId>
+		<Description>Engine-independent lifecycle dispatch for C# games.</Description>
+		<Version>0.4.0-alpha.3</Version>
+	</PropertyGroup>
+</Project>
