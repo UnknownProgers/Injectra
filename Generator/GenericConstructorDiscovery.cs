@@ -120,6 +120,12 @@ internal static class GenericConstructorDiscovery
 				explicitContracts = true;
 				yield return implementation;
 			}
+			else if (method.Name == KnownNames.AsImplementedInterfacesMethod && implementation.AllInterfaces.Length != 0)
+			{
+				explicitContracts = true;
+				foreach (var contract in implementation.AllInterfaces)
+					yield return contract.OriginalDefinition;
+			}
 			else if (method.Name == KnownNames.AsMethod)
 			{
 				explicitContracts = true;

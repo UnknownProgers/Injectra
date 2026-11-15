@@ -56,6 +56,36 @@ public sealed class RegistrationBuilder
 		return this;
 	}
 
+	/// <summary>Exposes every implemented interface, including inherited interfaces.</summary>
+	/// <returns>This registration builder.</returns>
+	/// <exception cref="InvalidOperationException">The builder is complete.</exception>
+	/// <exception cref="RegistrationException">An interface is duplicated or cannot be mapped positionally for an open generic implementation.</exception>
+	/// <remarks>
+	/// Explicit interfaces replace the implicit self contract; use AsSelf to retain it.
+	/// With no interfaces, the registration is unchanged. Ownership is unaffected.
+	/// All interfaces are validated before any are added.
+	/// </remarks>
+	public RegistrationBuilder AsImplementedInterfaces()
+	{
+		EnsureMutable();
+		var contracts = _implementationType.GetInterfaces()
+			.Select(type => _implementationType.IsGenericTypeDefinition && type.IsGenericType ? type.GetGenericTypeDefinition() : type)
+			.ToArray();
+
+		var unique = new HashSet<RuntimeTypeHandle>();
+		foreach (var contract in contracts)
+		{
+			if (_implementationType.IsGenericTypeDefinition)
+				GenericTypes.ValidateContract(_implementationType, contract);
+
+			if (!unique.Add(contract.TypeHandle) || _contracts.Any(existing => existing.TypeHandle.Equals(contract.TypeHandle)))
+				throw new RegistrationException($"Contract {contract} is already exposed by this registration.");
+		}
+
+		_contracts.AddRange(contracts);
+		return this;
+	}
+
 	/// <summary>Explicitly exposes the implementation type alongside the other contracts of this registration.</summary>
 	/// <returns>This registration builder for further configuration.</returns>
 	/// <exception cref="RegistrationException">The self contract was already explicitly added.</exception>

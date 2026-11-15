@@ -7,6 +7,7 @@ internal static class KnownNames
 	internal const string ContainerBuilder = "Injectra.ContainerBuilder";
 	internal const string RegistrationBuilder = "Injectra.RegistrationBuilder";
 	internal const string AsMethod = "As";
+	internal const string AsImplementedInterfacesMethod = "AsImplementedInterfaces";
 	internal const string AsSelfMethod = "AsSelf";
 	internal const string Container = "Injectra.Container";
 	internal const string Resolver = "Injectra.IResolver";

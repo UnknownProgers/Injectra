@@ -5,6 +5,28 @@ namespace Injectra.Generator.Tests;
 
 public sealed class OpenGenericGeneratorTests
 {
+	[Fact]
+	public void ImplementedInterfacesDiscoverClosedConstructor()
+	{
+		var result = Generate("""
+			using Injectra;
+			public interface IRepository<T>;
+			public sealed class Repository<T> : IRepository<T>;
+			public static class Entry
+			{
+				public static bool Run()
+				{
+					var builder = new ContainerBuilder();
+					builder.Register(typeof(Repository<>), Lifetime.Singleton).AsImplementedInterfaces();
+					using var container = builder.Build();
+					return container.Resolve<IRepository<int>>() is Repository<int>;
+				}
+			}
+			""");
+		Assert.Contains("new global::Repository<int>()", result.Source);
+		Assert.Equal(true, Run(result.Compilation));
+	}
+
 	[Theory]
 	[InlineData("Singleton", "true")]
 	[InlineData("Transient", "false")]
