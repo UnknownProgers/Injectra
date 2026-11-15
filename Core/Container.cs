@@ -62,6 +62,9 @@ public sealed class Container : IResolver, IDisposable
 	{
 		ThrowIfDisposed();
 		ArgumentNullException.ThrowIfNull(serviceType);
+		if (_bindings.TryGetValue(serviceType, out var local) && local.Prepared)
+			return local.Instance ?? ResolveBinding(local);
+
 		if (serviceType.ContainsGenericParameters)
 			throw new ResolutionException("An open generic type cannot be resolved directly.");
 
