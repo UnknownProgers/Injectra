@@ -1,10 +1,26 @@
 using System.Reflection;
+using Injectra.Generation;
 using Injectra.Internal.Resolution;
 
 namespace Injectra.Internal.Activation;
 
 internal sealed class ConstructorActivation(ConstructorInfo constructor, Binding[] dependencies, ConstructorInvoker? invoker = null) : IActivation
 {
+	internal static IActivation ForType(Type type)
+	{
+		if (!type.IsClass || type.IsAbstract || (type.ContainsGenericParameters && !type.IsGenericTypeDefinition))
+			throw new RegistrationException($"{type} cannot be constructed. Register an implementation, instance or factory.");
+
+		if (GeneratedConstructors.Find(type) is { } generated)
+			return generated;
+
+		var constructors = type.GetConstructors();
+		if (constructors.Length != 1)
+			throw new RegistrationException($"{type} must have exactly one public constructor.");
+
+		return new ConstructorActivation(constructors[0], []);
+	}
+
 	private ConstructorInfo Constructor { get; } = constructor;
 	public IReadOnlyList<Type> DependencyTypes { get; } = constructor
 		.GetParameters()

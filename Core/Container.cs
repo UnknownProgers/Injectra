@@ -134,7 +134,7 @@ public sealed class Container : IResolver, IDisposable
 		var closed = new Binding(implementation, definition.Lifetime)
 		{
 			Owner = this,
-			Activation = new ConstructorActivation(implementation.GetConstructors().Single(), [])
+			Activation = ConstructorActivation.ForType(implementation)
 		};
 		// Publish first so recursive dependencies reuse the binding and cycle detection can identify it.
 		(_closedGenerics ??= []).Add(key, closed);

@@ -105,7 +105,7 @@ public sealed class ContainerBuilder
 			{
 				binding.Activation = registration.Factory is { } factory
 					? new FactoryActivation(factory)
-					: new ConstructorActivation(registration.Constructor!, []);
+					: registration.Activation!;
 			}
 
 			foreach (var contract in registration.Contracts)

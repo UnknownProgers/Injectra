@@ -12,5 +12,6 @@
 		<Reference Include="Injectra.Core" Condition="'$(ContainerAssembly)' != ''">
 			<HintPath>$(ContainerAssembly)</HintPath>
 		</Reference>
+		<ProjectReference Include="../Generator/Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Condition="'$(ContainerAssembly)' == ''"/>
 	</ItemGroup>
 </Project>

@@ -1,4 +1,4 @@
-using System.Reflection;
+using Injectra.Internal.Activation;
 using Injectra.Internal.Registration;
 
 namespace Injectra;
@@ -76,24 +76,14 @@ public sealed class RegistrationBuilder
 
 	internal Registration Snapshot()
 	{
-		ConstructorInfo? constructor = null;
-		if (_factory is null && _instance is null)
-		{
-			var type = _implementationType;
-			if (!type.IsClass || type.IsAbstract || (type.ContainsGenericParameters && !type.IsGenericTypeDefinition))
-				throw new RegistrationException($"{type} cannot be constructed. Register an implementation, instance or factory.");
-
-			var constructors = type.GetConstructors();
-			if (constructors.Length != 1)
-				throw new RegistrationException($"{type} must have exactly one public constructor.");
-
-			constructor = constructors[0];
-		}
+		var activation = _factory is null && _instance is null
+			? ConstructorActivation.ForType(_implementationType)
+			: null;
 
 		return new Registration(_implementationType,
 			_lifetime,
 			_contracts.Count == 0 ? [_implementationType] : _contracts.ToArray(),
-			constructor,
+			activation,
 			_factory,
 			_instance,
 			_ownsInstance);
