@@ -2,4 +2,5 @@
 	<Project Path="Core/Core.csproj"/>
 	<Project Path="Tests/Core.Tests/Core.Tests.csproj"/>
 	<Project Path="Benchmarks/Benchmarks.csproj"/>
+	<Project Path="Tests/Benchmarks.Tests/Benchmarks.Tests.csproj"/>
 </Solution>

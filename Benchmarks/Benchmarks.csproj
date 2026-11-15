@@ -6,6 +6,8 @@
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="BenchmarkDotNet" Version="0.16.0-preview.2"/>
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0"/>
+		<PackageReference Include="GroveGames.DependencyInjection" Version="0.8.1"/>
 		<ProjectReference Include="../Core/Core.csproj" Condition="'$(ContainerAssembly)' == ''"/>
 		<Reference Include="Injectra.Core" Condition="'$(ContainerAssembly)' != ''">
 			<HintPath>$(ContainerAssembly)</HintPath>
