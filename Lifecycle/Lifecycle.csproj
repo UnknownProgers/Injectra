@@ -10,6 +10,7 @@
 		<PackageProjectUrl>https://github.com/UnknownProgers/Injectra</PackageProjectUrl>
 		<PackageTags>dependency-injection;gamedev;games;di</PackageTags>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageIcon>icon.png</PackageIcon>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludeCoreInPackage</TargetsForTfmSpecificBuildOutput>
 		<Description>A lightweight dependency injection library for .NET, designed primarily for game development.</Description>
@@ -18,6 +19,7 @@
 		<ProjectReference Include="../Core/Core.csproj" PrivateAssets="all"/>
 		<None Include="../README.md" Pack="true" PackagePath="/"/>
 		<None Include="../LICENSE" Pack="true" PackagePath="/"/>
+		<None Include="../icon.png" Pack="true" PackagePath="/"/>
 		<None Include="../Generator/bin/$(Configuration)/netstandard2.0/Injectra.Generator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false"/>
 	</ItemGroup>
 	<Target Name="IncludeCoreInPackage" DependsOnTargets="BuildOnlySettings;ResolveReferences">
