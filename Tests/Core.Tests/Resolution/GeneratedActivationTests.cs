@@ -111,6 +111,29 @@ public sealed class GeneratedActivationTests
 		Assert.Equal(childLifetime == Lifetime.Singleton, ReferenceEquals(first, second));
 	}
 
+	[Fact]
+	public void GeneratedParentRegistrationDoesNotBypassChildFactory()
+	{
+		GeneratedConstructors.Register(typeof(FactoryOverride), [], _ => new FactoryOverride());
+		var builder = new ContainerBuilder();
+		builder.Register<FactoryOverride>(Lifetime.Transient);
+		using var root = builder.Build();
+		root.Resolve<FactoryOverride>();
+		var expected = new FactoryOverride();
+		var calls = 0;
+		using var child = root.CreateChild(b => b.Register(_ =>
+		{
+			calls++;
+			return expected;
+		}, Lifetime.Transient));
+
+		Assert.Same(expected, child.Resolve<FactoryOverride>());
+		Assert.Same(expected, child.Resolve<FactoryOverride>());
+		Assert.Equal(2, calls);
+	}
+
+	private sealed class FactoryOverride;
+
 	private sealed class LifetimeConsumer(IClock clock)
 	{
 		public IClock Clock { get; } = clock;
