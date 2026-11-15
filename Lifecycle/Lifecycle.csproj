@@ -3,11 +3,24 @@
 		<AssemblyName>Injectra.Lifecycle</AssemblyName>
 		<RootNamespace>Injectra.Lifecycle</RootNamespace>
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
-		<PackageId>Injectra.Lifecycle</PackageId>
-		<Description>Engine-independent lifecycle dispatch for C# games.</Description>
-		<Version>0.4.0-alpha.3</Version>
+		<PackageId>Injectra</PackageId>
+		<Authors>UnknownProgers</Authors>
+		<RepositoryUrl>https://github.com/UnknownProgers/Injectra</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageProjectUrl>https://github.com/UnknownProgers/Injectra</PackageProjectUrl>
+		<PackageTags>dependency-injection;gamedev;games;di</PackageTags>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludeCoreInPackage</TargetsForTfmSpecificBuildOutput>
+		<Description>A lightweight dependency injection library for .NET, designed primarily for game development.</Description>
 	</PropertyGroup>
 	<ItemGroup>
-		<ProjectReference Include="../Core/Core.csproj"/>
+		<ProjectReference Include="../Core/Core.csproj" PrivateAssets="all"/>
+		<None Include="../README.md" Pack="true" PackagePath="/"/>
+		<None Include="../Generator/bin/$(Configuration)/netstandard2.0/Injectra.Generator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false"/>
 	</ItemGroup>
+	<Target Name="IncludeCoreInPackage" DependsOnTargets="BuildOnlySettings;ResolveReferences">
+		<ItemGroup>
+			<BuildOutputInPackage Include="$(OutputPath)Injectra.Core.dll;$(OutputPath)Injectra.Core.xml"/>
+		</ItemGroup>
+	</Target>
 </Project>

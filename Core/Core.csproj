@@ -3,13 +3,11 @@
 		<AssemblyName>Injectra.Core</AssemblyName>
 		<RootNamespace>Injectra</RootNamespace>
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
-		<PackageId>Injectra.Core</PackageId>
+		<IsPackable>false</IsPackable>
 		<Description>A lightweight dependency injection library for .NET, designed primarily for game development.</Description>
 		<RepositoryUrl>https://github.com/UnknownProgers/Injectra</RepositoryUrl>
-		<Version>0.4.0-alpha.3</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<ProjectReference Include="../Generator/Generator.csproj" ReferenceOutputAssembly="false" PrivateAssets="all"/>
-		<None Include="../Generator/bin/$(Configuration)/netstandard2.0/Injectra.Generator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false"/>
 	</ItemGroup>
 </Project>

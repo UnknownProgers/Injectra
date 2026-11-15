@@ -21,6 +21,16 @@ Currently in alpha. Targets .NET 11; building the repository requires the SDK sp
   resolution.
 - No Godot or Unity dependency. Concurrent container use is unsupported.
 
+## Installation
+
+```sh
+# After this preview is published:
+dotnet add package Injectra --version 0.5.0-alpha.1
+```
+
+One package includes Core, Lifecycle, and the automatically enabled constructor generator. Lifecycle is optional in use:
+call `UseLifecycle()` when the application needs it. Godot and Unity are not required.
+
 ## Quick start
 
 Register services at the application or scene entry point, build the container, then resolve the root object. Its constructor dependencies
@@ -196,15 +206,17 @@ public sealed class Repository<T> : IRepository<T>;
 
 ### Source generation
 
-The core package includes a Roslyn generator that emits direct constructor calls for supported registrations and resolvable types visible to
+The Injectra package includes a Roslyn generator that emits direct constructor calls for supported registrations and resolvable types
+visible to
 it. Open generic inference is supported for discoverable closed types. Types the generator cannot handle use reflection-based activation.
 
-No separate registration syntax is needed. When referencing the projects directly, add the generator as an analyzer, as shown
-in [Core.Tests.csproj](Tests/Core.Tests/Core.Tests.csproj).
+No separate registration syntax is needed. When referencing projects directly, reference Core and optionally Lifecycle, and add the
+generator as an analyzer, as shown in [Core.Tests.csproj](Tests/Core.Tests/Core.Tests.csproj).
 
 ## Lifecycle integration
 
-Reference `Injectra.Lifecycle` to enable lifecycle dispatch for a root container. Register custom phases through `UseLifecycle`:
+Use the `Injectra.Lifecycle` namespace from the same `Injectra` package to enable lifecycle dispatch for a root container. Register custom
+phases through `UseLifecycle`:
 
 ```csharp
 using Injectra.Lifecycle;
