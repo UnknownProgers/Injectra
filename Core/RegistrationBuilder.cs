@@ -4,51 +4,65 @@ using Injectra.Internal.Registration;
 namespace Injectra;
 
 /// <summary>Selects the service contracts exposed by a single registration.</summary>
-/// <typeparam name="T">The registered implementation or instance type.</typeparam>
-/// <remarks>Without explicit contracts, the registration exposes <typeparamref name="T"/> itself.</remarks>
-public sealed class RegistrationBuilder<T> : IRegistrationBuilder where T : class
+/// <remarks>Without explicit contracts, the registration exposes the implementation type itself.</remarks>
+public sealed class RegistrationBuilder
 {
 	private readonly List<Type> _contracts = [];
 	private readonly Lifetime _lifetime;
 	private Func<IResolver, object>? _factory;
-	private T? _instance;
+	private object? _instance;
+	private readonly Type _implementationType;
 	private bool _completed;
 	private bool _ownsInstance;
 
-	internal RegistrationBuilder(Lifetime lifetime, Func<IResolver, object>? factory = null, T? instance = null)
+	internal RegistrationBuilder(Type implementationType, Lifetime lifetime, Func<IResolver, object>? factory = null, object? instance = null)
 	{
+		_implementationType = implementationType;
 		_lifetime = lifetime;
 		_factory = factory;
 		_instance = instance;
 	}
 
 	/// <summary>Adds a service contract to this registration.</summary>
-	/// <typeparam name="TContract">A type assignable from <typeparamref name="T"/>.</typeparam>
+	/// <typeparam name="TContract">A type assignable from the implementation type.</typeparam>
 	/// <returns>This registration builder for further configuration.</returns>
 	/// <exception cref="RegistrationException">
-	/// <typeparamref name="T"/> is not assignable to <typeparamref name="TContract"/>, or the contract was already added.
+	/// The implementation type is not assignable to <typeparamref name="TContract"/>, or the contract was already added.
 	/// </exception>
 	/// <exception cref="InvalidOperationException">The owning container builder has already built successfully.</exception>
 	/// <remarks>Adding an explicit contract removes the implicit self contract. Use <see cref="AsSelf"/> to expose it too.</remarks>
-	public RegistrationBuilder<T> As<TContract>()
+	public RegistrationBuilder As<TContract>()
+	{
+		return As(typeof(TContract));
+	}
+
+	/// <summary>Adds a closed contract or a positionally matching open generic contract.</summary>
+	/// <param name="contract">The service contract.</param>
+	/// <returns>This builder.</returns>
+	/// <exception cref="ArgumentNullException">The contract is null.</exception>
+	/// <exception cref="RegistrationException">The contract is incompatible or duplicated.</exception>
+	/// <exception cref="InvalidOperationException">The builder is complete.</exception>
+	public RegistrationBuilder As(Type contract)
 	{
 		EnsureMutable();
-		var contract = typeof(TContract);
-		if (!contract.IsAssignableFrom(typeof(T)))
-			throw new RegistrationException($"{typeof(T)} does not implement {contract}.");
+		ArgumentNullException.ThrowIfNull(contract);
+		if (_implementationType.IsGenericTypeDefinition)
+			GenericTypes.ValidateContract(_implementationType, contract);
+		else if (!contract.IsAssignableFrom(_implementationType))
+			throw new RegistrationException($"{_implementationType} does not implement {contract}.");
 
 		AddContract(contract);
 		return this;
 	}
 
-	/// <summary>Explicitly exposes <typeparamref name="T"/> alongside the other contracts of this registration.</summary>
+	/// <summary>Explicitly exposes the implementation type alongside the other contracts of this registration.</summary>
 	/// <returns>This registration builder for further configuration.</returns>
 	/// <exception cref="RegistrationException">The self contract was already explicitly added.</exception>
 	/// <exception cref="InvalidOperationException">The owning container builder has already built successfully.</exception>
-	public RegistrationBuilder<T> AsSelf()
+	public RegistrationBuilder AsSelf()
 	{
 		EnsureMutable();
-		AddContract(typeof(T));
+		AddContract(_implementationType);
 		return this;
 	}
 
@@ -60,13 +74,13 @@ public sealed class RegistrationBuilder<T> : IRegistrationBuilder where T : clas
 		_contracts.Add(contract);
 	}
 
-	Registration IRegistrationBuilder.Snapshot()
+	internal Registration Snapshot()
 	{
 		ConstructorInfo? constructor = null;
 		if (_factory is null && _instance is null)
 		{
-			var type = typeof(T);
-			if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters)
+			var type = _implementationType;
+			if (!type.IsClass || type.IsAbstract || (type.ContainsGenericParameters && !type.IsGenericTypeDefinition))
 				throw new RegistrationException($"{type} cannot be constructed. Register an implementation, instance or factory.");
 
 			var constructors = type.GetConstructors();
@@ -76,16 +90,16 @@ public sealed class RegistrationBuilder<T> : IRegistrationBuilder where T : clas
 			constructor = constructors[0];
 		}
 
-		return new Registration(typeof(T),
+		return new Registration(_implementationType,
 			_lifetime,
-			_contracts.Count == 0 ? [typeof(T)] : _contracts.ToArray(),
+			_contracts.Count == 0 ? [_implementationType] : _contracts.ToArray(),
 			constructor,
 			_factory,
 			_instance,
 			_ownsInstance);
 	}
 
-	void IRegistrationBuilder.Complete()
+	internal void Complete()
 	{
 		_completed = true;
 		_factory = null;
@@ -104,7 +118,7 @@ public sealed class RegistrationBuilder<T> : IRegistrationBuilder where T : clas
 	/// The caller must not dispose it or transfer ownership to another independent container.
 	/// Non-disposable instances require no cleanup. Repeated calls before build have no additional effect.
 	/// </remarks>
-	public RegistrationBuilder<T> OwnedByContainer()
+	public RegistrationBuilder OwnedByContainer()
 	{
 		EnsureMutable();
 		if (_instance is null)

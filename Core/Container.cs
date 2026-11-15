@@ -1,3 +1,4 @@
+using Injectra.Internal.Activation;
 using Injectra.Internal.Resolution;
 
 namespace Injectra;
@@ -17,9 +18,10 @@ public sealed class Container : IResolver, IDisposable
 	private readonly Binding _resolverBinding;
 	// Canonical inherited binding -> child plan. Aliases share a single plan.
 	private Dictionary<Binding, Binding>? _inheritedBindings;
-	// Only inherited contracts actually requested by this container.
+	// Inherited and closed generic contracts requested by this container.
 	private Dictionary<Type, Binding>? _lookupCache;
 
+	private Dictionary<(Binding Definition, Type Implementation), Binding>? _closedGenerics;
 	private bool _disposed;
 
 	internal Container(Dictionary<Type, Binding> bindings, Container? parent = null)
@@ -56,6 +58,9 @@ public sealed class Container : IResolver, IDisposable
 	{
 		ThrowIfDisposed();
 		ArgumentNullException.ThrowIfNull(serviceType);
+		if (serviceType.ContainsGenericParameters)
+			throw new ResolutionException("An open generic type cannot be resolved directly.");
+
 		if (serviceType == typeof(IResolver))
 			return this;
 
@@ -75,10 +80,64 @@ public sealed class Container : IResolver, IDisposable
 	private Binding? FindParentBinding(Type type)
 	{
 		for (var current = _parent; current is not null; current = current._parent)
-			if (current._bindings.TryGetValue(type, out var binding))
+			if (current.FindLocalBinding(type) is { } binding)
 				return binding;
 
 		return null;
+	}
+
+	private Binding? FindLocalBinding(Type type)
+	{
+		if (_bindings.TryGetValue(type, out var exact))
+			return exact;
+
+		if (type.IsConstructedGenericType && _bindings.TryGetValue(type.GetGenericTypeDefinition(), out var open))
+			return open;
+
+		return null;
+	}
+
+	private Binding CloseGeneric(Binding definition, Type contract)
+	{
+		var owner = definition.Lifetime == Lifetime.Singleton ? definition.Owner : this;
+		if (!ReferenceEquals(owner, this))
+			return owner.CloseGeneric(definition, contract);
+
+		Type implementation;
+		try
+		{
+			implementation = definition.ImplementationType.MakeGenericType(contract.GetGenericArguments());
+		}
+		catch (ArgumentException exception)
+		{
+			throw new ResolutionException($"Cannot close {definition.ImplementationType} for {contract}: {exception.Message}");
+		}
+
+		var key = (definition, implementation);
+		if (_closedGenerics is not null && _closedGenerics.TryGetValue(key, out var existing))
+			return existing;
+
+		// Expanding dependencies such as A<T> -> A<List<T>> never repeat a closed type.
+		if (_preparing.Count >= 128)
+			throw new RegistrationException("Generic dependency expansion exceeds the maximum preparation depth of 128.");
+
+		var closed = new Binding(implementation, definition.Lifetime)
+		{
+			Owner = this,
+			Activation = new ConstructorActivation(implementation.GetConstructors().Single(), [])
+		};
+		// Publish first so recursive dependencies reuse the binding and cycle detection can identify it.
+		(_closedGenerics ??= []).Add(key, closed);
+		try
+		{
+			PrepareBinding(closed);
+			return closed;
+		}
+		catch
+		{
+			_closedGenerics.Remove(key);
+			throw;
+		}
 	}
 
 	private Binding? FindBinding(Type type)
@@ -92,46 +151,53 @@ public sealed class Container : IResolver, IDisposable
 		if (_lookupCache is not null && _lookupCache.TryGetValue(type, out var cached))
 			return cached;
 
-		var parentBinding = FindParentBinding(type);
-		if (parentBinding is null)
+		var source = FindLocalBinding(type) ?? FindParentBinding(type);
+		if (source is null)
 			return null;
 
-		if (parentBinding.Lifetime == Lifetime.Singleton)
-		{
-			(_lookupCache ??= []).Add(type, parentBinding);
-			return parentBinding;
-		}
+		Binding binding;
+		if (source.ImplementationType.IsGenericTypeDefinition)
+			binding = CloseGeneric(source, type);
+		else if (source.Lifetime == Lifetime.Singleton)
+			binding = source;
+		else
+			binding = InheritBinding(source);
 
-		if (_inheritedBindings is not null && _inheritedBindings.TryGetValue(parentBinding, out var existing))
-		{
-			(_lookupCache ??= []).TryAdd(type, existing);
+		// Recursive preparation may return an unfinished binding solely for cycle detection.
+		if (binding.Prepared)
+			(_lookupCache ??= []).TryAdd(type, binding);
+
+		return binding;
+	}
+
+	private Binding InheritBinding(Binding source)
+	{
+		if (_inheritedBindings is not null && _inheritedBindings.TryGetValue(source, out var existing))
 			return existing;
-		}
 
-		var inherited = new Binding(parentBinding.ImplementationType, Lifetime.Transient)
+		var inherited = new Binding(source.ImplementationType, Lifetime.Transient)
 		{
 			Owner = this,
-			Activation = parentBinding.Activation
+			Activation = source.Activation
 		};
 		// Publish before preparing so recursive dependency edges refer to the same binding.
-		(_inheritedBindings ??= []).Add(parentBinding, inherited);
+		(_inheritedBindings ??= []).Add(source, inherited);
 
 		try
 		{
 			PrepareBinding(inherited);
-			(_lookupCache ??= []).TryAdd(type, inherited);
 			return inherited;
 		}
 		catch
 		{
-			_inheritedBindings.Remove(parentBinding);
+			_inheritedBindings.Remove(source);
 			throw;
 		}
 	}
 
 	private void PrepareBinding(Binding binding)
 	{
-		if (!ReferenceEquals(binding.Owner, this) || binding.Prepared)
+		if (binding.ImplementationType.IsGenericTypeDefinition || !ReferenceEquals(binding.Owner, this) || binding.Prepared)
 			return;
 
 		if (_preparing.Contains(binding))
@@ -277,6 +343,7 @@ public sealed class Container : IResolver, IDisposable
 		_bindings.Clear();
 		_inheritedBindings?.Clear();
 		_lookupCache?.Clear();
+		_closedGenerics?.Clear();
 		_parent?._children.Remove(this);
 		_parent = null;
 

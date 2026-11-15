@@ -1,5 +1,4 @@
 using Injectra.Internal.Activation;
-using Injectra.Internal.Registration;
 using Injectra.Internal.Resolution;
 
 namespace Injectra;
@@ -8,7 +7,7 @@ namespace Injectra;
 /// <remarks>This builder is not thread-safe. A failed build can be corrected and retried.</remarks>
 public sealed class ContainerBuilder
 {
-	private readonly List<IRegistrationBuilder> _registrations = [];
+	private readonly List<RegistrationBuilder> _registrations = [];
 	private bool _built;
 	private readonly Container? _parent;
 	private bool _configuringChild;
@@ -36,7 +35,16 @@ public sealed class ContainerBuilder
 	/// <returns>A builder for selecting the service contracts exposed by this registration.</returns>
 	/// <exception cref="ArgumentOutOfRangeException"><paramref name="lifetime"/> is not a defined lifetime.</exception>
 	/// <exception cref="InvalidOperationException">This builder has already built a container successfully.</exception>
-	public RegistrationBuilder<T> Register<T>(Lifetime lifetime) where T : class => Add<T>(lifetime);
+	public RegistrationBuilder Register<T>(Lifetime lifetime) where T : class => Add(typeof(T), lifetime);
+
+	/// <summary>Registers a concrete type or an open generic type definition.</summary>
+	/// <param name="implementationType">The implementation type.</param>
+	/// <param name="lifetime">The instance lifetime.</param>
+	/// <returns>A fluent registration builder.</returns>
+	/// <exception cref="ArgumentNullException">The type is null.</exception>
+	/// <exception cref="ArgumentOutOfRangeException">The lifetime is invalid.</exception>
+	/// <exception cref="InvalidOperationException">The builder has completed.</exception>
+	public RegistrationBuilder Register(Type implementationType, Lifetime lifetime) => Add(implementationType, lifetime);
 
 	/// <summary>Registers a service created by a factory.</summary>
 	/// <param name="factory">A factory called during resolution, not during registration or build.</param>
@@ -47,10 +55,10 @@ public sealed class ContainerBuilder
 	/// <exception cref="InvalidOperationException">This builder has already built a container successfully.</exception>
 	/// <exception cref="ArgumentNullException"><paramref name="factory"/> is <see langword="null"/>.</exception>
 	/// <remarks>The factory must return a non-null instance. Its dependencies are validated when it runs.</remarks>
-	public RegistrationBuilder<T> Register<T>(Func<IResolver, T> factory, Lifetime lifetime) where T : class
+	public RegistrationBuilder Register<T>(Func<IResolver, T> factory, Lifetime lifetime) where T : class
 	{
 		ArgumentNullException.ThrowIfNull(factory);
-		return Add<T>(lifetime, factory);
+		return Add(typeof(T), lifetime, factory);
 	}
 
 	/// <summary>Registers an existing instance, externally owned unless ownership is explicitly transferred.</summary>
@@ -59,10 +67,10 @@ public sealed class ContainerBuilder
 	/// <returns>A builder for selecting the service contracts exposed by this instance.</returns>
 	/// <exception cref="ArgumentNullException"><paramref name="instance"/> is <see langword="null"/>.</exception>
 	/// <exception cref="InvalidOperationException">This builder has already built a container successfully.</exception>
-	public RegistrationBuilder<T> RegisterInstance<T>(T instance) where T : class
+	public RegistrationBuilder RegisterInstance<T>(T instance) where T : class
 	{
 		ArgumentNullException.ThrowIfNull(instance);
-		return Add(Lifetime.Singleton, instance: instance);
+		return Add(typeof(T), Lifetime.Singleton, instance: instance);
 	}
 
 	/// <summary>Validates registrations and creates a container without invoking constructors or factories.</summary>
@@ -141,13 +149,14 @@ public sealed class ContainerBuilder
 		_registrations.Clear();
 	}
 
-	private RegistrationBuilder<T> Add<T>(Lifetime lifetime, Func<IResolver, object>? factory = null, T? instance = null) where T : class
+	private RegistrationBuilder Add(Type implementationType, Lifetime lifetime, Func<IResolver, object>? factory = null, object? instance = null)
 	{
 		EnsureMutable();
+		ArgumentNullException.ThrowIfNull(implementationType);
 		if (!Enum.IsDefined(lifetime))
 			throw new ArgumentOutOfRangeException(nameof(lifetime));
 
-		var registration = new RegistrationBuilder<T>(lifetime, factory, instance);
+		var registration = new RegistrationBuilder(implementationType, lifetime, factory, instance);
 		_registrations.Add(registration);
 		return registration;
 	}

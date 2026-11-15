@@ -4,8 +4,8 @@
 		<RootNamespace>Injectra</RootNamespace>
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
 		<PackageId>Injectra.Core</PackageId>
-		<Description>A lightweight dependency injection library for .NET.</Description>
+		<Description>A lightweight dependency injection library for .NET, designed primarily for game development.</Description>
 		<RepositoryUrl>https://github.com/UnknownProgers/Injectra</RepositoryUrl>
-		<Version>0.2.0-alpha.1</Version>
+		<Version>0.3.0-alpha.1</Version>
 	</PropertyGroup>
 </Project>
