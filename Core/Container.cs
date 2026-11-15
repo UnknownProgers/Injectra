@@ -51,7 +51,11 @@ public sealed class Container : IResolver, IDisposable
 	}
 
 	/// <inheritdoc />
-	public T Resolve<T>() => (T)Resolve(typeof(T));
+	public T Resolve<T>()
+	{
+		ThrowIfDisposed();
+		return (T)ResolveService(typeof(T));
+	}
 
 	/// <inheritdoc />
 	public object Resolve(Type serviceType)
@@ -61,12 +65,18 @@ public sealed class Container : IResolver, IDisposable
 		if (serviceType.ContainsGenericParameters)
 			throw new ResolutionException("An open generic type cannot be resolved directly.");
 
-		if (serviceType == typeof(IResolver))
-			return this;
+		return ResolveService(serviceType);
+	}
 
+	private object ResolveService(Type serviceType)
+	{
 		var binding = FindBinding(serviceType)
 			?? throw new ResolutionException($"Service is not registered: {FormatPath(serviceType)}.");
-		PrepareBinding(binding);
+		if (!binding.Prepared)
+			PrepareBinding(binding);
+
+		if (ReferenceEquals(binding.Owner, this) && binding.Instance is { } instance)
+			return instance;
 
 		return ResolveBinding(binding);
 	}
@@ -197,7 +207,7 @@ public sealed class Container : IResolver, IDisposable
 
 	private void PrepareBinding(Binding binding)
 	{
-		if (binding.ImplementationType.IsGenericTypeDefinition || !ReferenceEquals(binding.Owner, this) || binding.Prepared)
+		if (binding.Prepared || !ReferenceEquals(binding.Owner, this) || binding.ImplementationType.IsGenericTypeDefinition)
 			return;
 
 		if (_preparing.Contains(binding))

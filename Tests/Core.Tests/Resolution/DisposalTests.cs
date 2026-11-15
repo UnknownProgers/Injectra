@@ -207,6 +207,23 @@ public sealed class DisposalTests
 		GC.KeepAlive(container);
 	}
 
+	[Fact]
+	public void CachedAncestorSingletonCannotBeResolvedWhileAncestorIsDisposing()
+	{
+		var builder = new ContainerBuilder();
+		builder.Register<Resource>(Lifetime.Singleton);
+		using var root = builder.Build();
+		var waitingChild = root.CreateChild();
+		waitingChild.Resolve<Resource>();
+		root.CreateChild(child => child.RegisterInstance(new Resource(() =>
+		{
+			Assert.Throws<ObjectDisposedException>(() => waitingChild.Resolve<Resource>());
+			Assert.Throws<ObjectDisposedException>(() => waitingChild.Resolve(typeof(Resource)));
+		})).OwnedByContainer());
+
+		root.Dispose();
+	}
+
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	private static WeakReference ResolveWeakReference(Container container) => new(container.Resolve<Resource>());
 

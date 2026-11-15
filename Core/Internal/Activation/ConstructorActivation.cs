@@ -1,10 +1,9 @@
 using System.Reflection;
-using System.Runtime.ExceptionServices;
 using Injectra.Internal.Resolution;
 
 namespace Injectra.Internal.Activation;
 
-internal sealed class ConstructorActivation(ConstructorInfo constructor, Binding[] dependencies) : IActivation
+internal sealed class ConstructorActivation(ConstructorInfo constructor, Binding[] dependencies, ConstructorInvoker? invoker = null) : IActivation
 {
 	private ConstructorInfo Constructor { get; } = constructor;
 	public IReadOnlyList<Type> DependencyTypes { get; } = constructor
@@ -12,21 +11,29 @@ internal sealed class ConstructorActivation(ConstructorInfo constructor, Binding
 		.Select(parameter => parameter.ParameterType)
 		.ToArray();
 
-	public IActivation WithDependencies(Binding[] bindings) => new ConstructorActivation(Constructor, bindings);
+	public IActivation WithDependencies(Binding[] bindings) => new ConstructorActivation(Constructor, bindings, invoker ?? ConstructorInvoker.Create(Constructor));
 
 	public object Create(Container container)
 	{
-		var arguments = dependencies.Length == 0 ? [] : new object[dependencies.Length];
+		object Argument(int index) => container.ResolveBinding(dependencies[index]);
+
+		return dependencies.Length switch
+		{
+			0 => invoker!.Invoke(),
+			1 => invoker!.Invoke(Argument(0)),
+			2 => invoker!.Invoke(Argument(0), Argument(1)),
+			3 => invoker!.Invoke(Argument(0), Argument(1), Argument(2)),
+			4 => invoker!.Invoke(Argument(0), Argument(1), Argument(2), Argument(3)),
+			_ => CreateMany(container)
+		};
+	}
+
+	private object CreateMany(Container container)
+	{
+		var arguments = new object?[dependencies.Length];
 		for (var i = 0; i < dependencies.Length; i++)
 			arguments[i] = container.ResolveBinding(dependencies[i]);
-		try
-		{
-			return Constructor.Invoke(arguments);
-		}
-		catch (TargetInvocationException exception) when (exception.InnerException is not null)
-		{
-			ExceptionDispatchInfo.Capture(exception.InnerException).Throw();
-			throw;
-		}
+
+		return invoker!.Invoke(arguments.AsSpan());
 	}
 }
