@@ -25,11 +25,16 @@ public sealed class Container : IResolver, IDisposable
 	private bool _disposed;
 	private int _activeOperations;
 	internal bool IsRoot => _parent is null;
+	internal bool IsDisposed => _disposed;
+	internal IReadOnlyList<Container> Children => _children;
+	internal Action<Container>? ChildBuilt { get; set; }
+	internal Action<Container>? Closing { get; set; }
 
 	internal Container(Dictionary<RuntimeTypeHandle, Binding[]> bindings, Container? parent = null)
 	{
 		_bindings = bindings;
 		_parent = parent;
+		ChildBuilt = parent?.ChildBuilt;
 		_resolverBindings = [new Binding(typeof(IResolver), Lifetime.Singleton, this) { Owner = this, Prepared = true }];
 	}
 
@@ -49,7 +54,24 @@ public sealed class Container : IResolver, IDisposable
 		ThrowIfDisposed();
 		var builder = new ContainerBuilder(this);
 		configure?.Invoke(builder);
-		return builder.BuildChild();
+		var child = builder.BuildChild();
+		try
+		{
+			ChildBuilt?.Invoke(child);
+			return child;
+		}
+		catch (Exception setupError)
+		{
+			try
+			{
+				child.Dispose();
+			}
+			catch (Exception cleanupError)
+			{
+				throw new AggregateException("Child setup and cleanup failed.", setupError, cleanupError);
+			}
+			throw;
+		}
 	}
 
 	/// <inheritdoc />
@@ -132,6 +154,32 @@ public sealed class Container : IResolver, IDisposable
 			if (binding.Lifetime != Lifetime.Singleton)
 				throw new RegistrationException($"Contract {contract} requires singleton or instance registrations.");
 		}
+	}
+
+	internal T[] ResolveLocalSingletons<T>() where T : class
+	{
+		var bindings = FindLocalBindings(typeof(T));
+		if (bindings is null)
+			return [];
+
+		foreach (var binding in bindings)
+			if (binding.Lifetime != Lifetime.Singleton)
+				throw new RegistrationException($"Contract {typeof(T)} requires singleton or instance registrations.");
+
+		var results = new T[bindings.Length];
+		for (var i = 0; i < bindings.Length; i++)
+		{
+			var binding = bindings[i];
+			if (binding.ImplementationType.IsGenericTypeDefinition)
+				binding = CloseGeneric(binding, typeof(T));
+
+			if (!binding.Prepared)
+				PrepareBinding(binding);
+
+			results[i] = (T)ResolveBinding(binding);
+		}
+
+		return results;
 	}
 
 	internal void BeginOperation()
@@ -400,6 +448,7 @@ public sealed class Container : IResolver, IDisposable
 			return;
 
 		EnsureNotResolving();
+		Closing?.Invoke(this);
 		_disposed = true;
 		List<Exception>? errors = null;
 		var children = _children.ToArray();
@@ -438,6 +487,8 @@ public sealed class Container : IResolver, IDisposable
 		_closedGenerics?.Clear();
 		_parent?._children.Remove(this);
 		_parent = null;
+		ChildBuilt = null;
+		Closing = null;
 
 		if (errors is not null)
 			throw new AggregateException(errors);

@@ -247,8 +247,13 @@ also runs during Build and is then frozen. Initialization remains an explicit ca
 or instance registrations; transients are rejected. The container disposes its owned services, while existing instances retain their
 configured ownership. The manager does not dispose participants itself.
 
-This first integration supports root registrations only. Children do not automatically join the application's lifecycle, and calling
-`UseLifecycle` on a child fails during Build. Dynamic participation is a later step. Concurrent dispatch is unsupported.
+Call `UseLifecycle` once on the root builder. Children and grandchildren automatically join the same manager with their local
+lifecycle registrations; inherited participants are not added again. Children created after initialization initialize before
+`CreateChild` returns when called outside a lifecycle callback. Children created inside a callback join after the current phase
+(or initial initialization) completes; they are initialized before participating in subsequent phases. Deferred setup errors are
+reported by that lifecycle call, and failed children are disposed. Disposing an attached child removes its participants before
+disposing its services; closing attached children during a callback is currently rejected. Calling `UseLifecycle` on a child fails during Build.
+Concurrent dispatch is unsupported.
 
 ## Performance
 

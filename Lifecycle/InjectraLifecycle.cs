@@ -1,20 +1,24 @@
+using System.Runtime.ExceptionServices;
 using Injectra.Lifecycle.Internal;
 
 namespace Injectra.Lifecycle;
 
-/// <summary>Initializes a fixed set of participants and dispatches explicitly registered lifecycle phases.</summary>
+/// <summary>Initializes participants from a container hierarchy and dispatches explicitly registered lifecycle phases.</summary>
 /// <remarks>
 /// The application owns the loop and supplies timing. Participant order is unspecified.
 /// Participants are not owned or disposed by this manager. Concurrent use is unsupported.
 /// </remarks>
 public sealed class InjectraLifecycle : IDisposable
 {
-	private IInitializable[] _initializables;
-	private readonly Dictionary<RuntimeTypeHandle, object> _phases = [];
+	private Participants<IInitializable> _initializables;
+	private readonly Dictionary<RuntimeTypeHandle, IPhase> _phases = [];
 	private State _state;
 	private bool _dispatching;
 	private Container? _source;
 	private bool _sealed;
+	private int _attachingChildren;
+	private readonly Queue<Container> _pendingChildren = [];
+	private bool _drainingChildren;
 
 	internal InjectraLifecycle(Container source)
 	{
@@ -22,7 +26,7 @@ public sealed class InjectraLifecycle : IDisposable
 			throw new InvalidOperationException("UseLifecycle currently supports root containers only.");
 
 		_source = source;
-		_initializables = ResolveParticipants<IInitializable>();
+		_initializables = new Participants<IInitializable>(ResolveParticipants<IInitializable>());
 
 		RegisterPhase<IFrameTickable, double>(static (participant, deltaTime) => participant.FrameTick(deltaTime));
 	}
@@ -46,7 +50,136 @@ public sealed class InjectraLifecycle : IDisposable
 	{
 		if (_state != State.Configuring)
 			throw new InvalidOperationException("UseLifecycle configuration must not initialize or dispose the manager.");
+
 		_sealed = true;
+		_source!.ChildBuilt = ChildBuilt;
+
+		foreach (var child in _source.Children.ToArray())
+			AttachChild(child);
+	}
+
+	private void ChildBuilt(Container child)
+	{
+		if (_state is State.Faulted or State.Disposed)
+			throw new InvalidOperationException("Cannot attach children to a stopped lifecycle.");
+
+		if (_dispatching || _state == State.Initializing || _attachingChildren != 0)
+		{
+			_pendingChildren.Enqueue(child);
+			return;
+		}
+
+		AttachChild(child);
+		DrainChildren();
+	}
+
+	private void AttachChild(Container child)
+	{
+		if (child.IsDisposed || _initializables.Children.ContainsKey(child))
+			return;
+
+		_attachingChildren++;
+		child.ChildBuilt = ChildBuilt;
+		try
+		{
+			_initializables.Attach(child);
+			foreach (var phase in _phases.Values)
+				phase.Attach(child);
+
+			child.Closing = DetachChild;
+			if (_state == State.Ready)
+				InitializeChild(child, _initializables.Children[child]);
+		}
+		catch
+		{
+			_initializables.Detach(child);
+			foreach (var phase in _phases.Values)
+				phase.Detach(child);
+
+			child.ChildBuilt = null;
+			child.Closing = null;
+			throw;
+		}
+		finally
+		{
+			_attachingChildren--;
+		}
+
+		foreach (var descendant in child.Children.ToArray())
+			AttachChild(descendant);
+	}
+
+	private void DrainChildren(Exception? callbackError = null)
+	{
+		if (_drainingChildren)
+			return;
+
+		_drainingChildren = true;
+		List<Exception>? errors = null;
+		try
+		{
+			while (_pendingChildren.TryDequeue(out var child))
+			{
+				try
+				{
+					AttachChild(child);
+				}
+				catch (Exception setupError)
+				{
+					(errors ??= []).Add(setupError);
+					try
+					{
+						child.Dispose();
+					}
+					catch (Exception cleanupError)
+					{
+						errors.Add(cleanupError);
+					}
+				}
+			}
+		}
+		finally
+		{
+			_drainingChildren = false;
+		}
+
+		if (errors is not null)
+		{
+			if (callbackError is not null)
+				errors.Insert(0, callbackError);
+
+			throw new AggregateException("Deferred child lifecycle setup failed.", errors);
+		}
+
+		if (callbackError is not null)
+			ExceptionDispatchInfo.Capture(callbackError).Throw();
+	}
+
+	private void DetachChild(Container child)
+	{
+		if (_state == State.Initializing || _dispatching)
+			throw new InvalidOperationException("Child lifecycle detachment requires a callback-free lifecycle boundary.");
+
+		foreach (var phase in _phases.Values)
+			phase.Detach(child);
+
+		_initializables.Detach(child);
+		child.ChildBuilt = null;
+		child.Closing = null;
+	}
+
+	private static void InitializeChild(Container child, IInitializable[] participants)
+	{
+		child.BeginOperation();
+		try
+		{
+			foreach (var participant in participants)
+				participant.Initialize();
+		}
+		finally
+		{
+			child.EndOperation();
+		}
 	}
 
 	/// <summary>Registers a custom phase and prepares its typed participant list before initialization.</summary>
@@ -79,23 +212,31 @@ public sealed class InjectraLifecycle : IDisposable
 	}
 
 	/// <summary>Initializes all initializable participants once, before dispatch is allowed.</summary>
+	/// <exception cref="AggregateException">Deferred child setup or cleanup fails.</exception>
 	/// <exception cref="ObjectDisposedException">The manager or its owning container is disposed.</exception>
 	/// <exception cref="InvalidOperationException">Initialization has already started, succeeded, or failed.</exception>
 	/// <remarks>
-	/// Participant exceptions propagate unchanged. Failure leaves dispatch disabled and cannot be retried;
-	/// already performed initialization is not rolled back. Participant ownership remains with the caller.
+	/// Initial participant exceptions propagate unchanged and leave dispatch disabled; initialization cannot be retried.
+	/// Children created during initialization join after the initial traversal. Deferred child failures dispose those
+	/// children and leave the initialized manager usable. Already performed initialization is not rolled back.
+	/// Participant ownership remains with their containers or external owners.
 	/// </remarks>
 	public void Initialize()
 	{
 		ThrowIfDisposed();
-		if (_state != State.Configuring)
-			throw new InvalidOperationException("Initialization can only be attempted once.");
+		if (_state != State.Configuring || _attachingChildren != 0)
+			throw new InvalidOperationException("Initialization can only be attempted once, outside child setup.");
+
 		_source?.BeginOperation();
 		_state = State.Initializing;
 		try
 		{
-			foreach (var participant in _initializables)
+			foreach (var participant in _initializables.Root)
 				participant.Initialize();
+
+			foreach (var (child, participants) in _initializables.Children)
+				InitializeChild(child, participants);
+
 			_state = State.Ready;
 		}
 		catch
@@ -107,13 +248,16 @@ public sealed class InjectraLifecycle : IDisposable
 		{
 			_source?.EndOperation();
 		}
+
+		DrainChildren();
 	}
 
 	/// <summary>Dispatches the default IFrameTickable phase.</summary>
 	/// <param name="deltaTime">Elapsed frame time in seconds, supplied by the caller.</param>
 	/// <exception cref="ObjectDisposedException">The manager or its owning container is disposed.</exception>
 	/// <exception cref="InvalidOperationException">Initialization has not succeeded, or a phase is already being dispatched.</exception>
-	/// <remarks>Participant exceptions propagate unchanged and stop this dispatch. Later dispatches remain allowed.</remarks>
+	/// <exception cref="AggregateException">Deferred child setup or cleanup fails; any dispatch exception is included.</exception>
+	/// <remarks>Participant exceptions stop this dispatch. Deferred children join after traversal. Later dispatches remain allowed.</remarks>
 	public void Tick(double deltaTime) => Dispatch<IFrameTickable, double>(deltaTime);
 
 	/// <summary>Invokes a registered phase for all of its participants.</summary>
@@ -124,14 +268,18 @@ public sealed class InjectraLifecycle : IDisposable
 	/// <exception cref="InvalidOperationException">
 	/// Initialization has not succeeded, dispatch is recursive, the phase is unregistered, or its argument type does not match.
 	/// </exception>
-	/// <remarks>Participant exceptions propagate unchanged and stop this dispatch. Participant order is unspecified.</remarks>
+	/// <exception cref="AggregateException">Deferred child setup or cleanup fails; any dispatch exception is included.</exception>
+	/// <remarks>
+	/// Participant exceptions stop this dispatch. Children created during callbacks join after traversal,
+	/// before this method returns, and participate starting with the next phase call. Participant order is unspecified.
+	/// </remarks>
 	public void Dispatch<TPhase, TArgument>(TArgument argument) where TPhase : class
 	{
 		ThrowIfDisposed();
 		if (_state != State.Ready)
 			throw new InvalidOperationException("Successful initialization is required before dispatch.");
 
-		if (_dispatching)
+		if (_dispatching || _attachingChildren != 0 || _drainingChildren)
 			throw new InvalidOperationException("Recursive lifecycle dispatch is unsupported.");
 
 		if (!_phases.TryGetValue(typeof(TPhase).TypeHandle, out var entry) || entry is not Phase<TPhase, TArgument> phase)
@@ -139,15 +287,21 @@ public sealed class InjectraLifecycle : IDisposable
 
 		_source?.BeginOperation();
 		_dispatching = true;
+		Exception? callbackError = null;
 		try
 		{
 			phase.Dispatch(argument);
+		}
+		catch (Exception error)
+		{
+			callbackError = error;
 		}
 		finally
 		{
 			_dispatching = false;
 			_source?.EndOperation();
 		}
+		DrainChildren(callbackError);
 	}
 
 	/// <summary>Stops dispatch and releases references without disposing participants.</summary>
@@ -158,11 +312,18 @@ public sealed class InjectraLifecycle : IDisposable
 		if (_state == State.Disposed)
 			return;
 
-		if (_state == State.Initializing || _dispatching)
+		if (_state == State.Initializing || _dispatching || _attachingChildren != 0 || _drainingChildren)
 			throw new InvalidOperationException("Cannot dispose during a lifecycle callback.");
 
 		_state = State.Disposed;
-		_initializables = [];
+		_source!.ChildBuilt = null;
+		foreach (var child in _initializables.Children.Keys)
+		{
+			child.ChildBuilt = null;
+			child.Closing = null;
+		}
+		_pendingChildren.Clear();
+		_initializables = new Participants<IInitializable>([]);
 		_phases.Clear();
 		_source = null;
 	}
