@@ -25,5 +25,16 @@ public readonly struct ActivationContext
 	/// <exception cref="ObjectDisposedException">The binding's container was disposed.</exception>
 	/// <exception cref="ResolutionException">A dynamic dependency cycle is detected or a factory returns null.</exception>
 	/// <remarks>User constructor and factory exceptions propagate unchanged. Only container-supplied contexts are valid.</remarks>
-	public T Resolve<T>(int index) => (T)_container.ResolveBinding(_dependencies[index]);
+	public T Resolve<T>(int index)
+	{
+		_container.ThrowIfDisposed();
+		var binding = _dependencies[index];
+		if (binding.Instance is { } instance)
+		{
+			binding.Owner.ThrowIfDisposed();
+			return (T)instance;
+		}
+
+		return (T)_container.ResolveBinding(binding);
+	}
 }

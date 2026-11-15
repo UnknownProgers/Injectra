@@ -70,6 +70,61 @@ public sealed class GeneratedActivationTests
 		Assert.Equal(2, calls);
 	}
 
+	[Fact]
+	public void CachedAncestorDependencyCannotBeUsedWhileOwnerIsDisposing()
+	{
+		GeneratedConstructors.Register(typeof(DisposalConsumer), [typeof(IClock)],
+			context => new DisposalConsumer(context.Resolve<IClock>(0)));
+		var builder = new ContainerBuilder();
+		builder.Register<Clock>(Lifetime.Singleton).As<IClock>();
+		builder.Register<DisposalConsumer>(Lifetime.Transient);
+		using var root = builder.Build();
+		using var waiting = root.CreateChild();
+		Assert.Same(root.Resolve<IClock>(), waiting.Resolve<DisposalConsumer>().Clock);
+		Exception? observed = null;
+		root.CreateChild(b => b.RegisterInstance(new DisposalCallback(() =>
+			observed = Record.Exception(() => waiting.Resolve<DisposalConsumer>()))).OwnedByContainer());
+
+		root.Dispose();
+
+		Assert.IsType<ObjectDisposedException>(observed);
+	}
+
+	[Theory]
+	[InlineData(Lifetime.Singleton)]
+	[InlineData(Lifetime.Transient)]
+	public void WarmedParentDoesNotCaptureChildDependencyLifetime(Lifetime childLifetime)
+	{
+		GeneratedConstructors.Register(typeof(LifetimeConsumer), [typeof(IClock)],
+			context => new LifetimeConsumer(context.Resolve<IClock>(0)));
+		var builder = new ContainerBuilder();
+		builder.Register<Clock>(Lifetime.Singleton).As<IClock>();
+		builder.Register<LifetimeConsumer>(Lifetime.Transient);
+		using var root = builder.Build();
+		var parentClock = root.Resolve<LifetimeConsumer>().Clock;
+		using var child = root.CreateChild(b => b.Register<Clock>(childLifetime).As<IClock>());
+
+		var first = child.Resolve<LifetimeConsumer>().Clock;
+		var second = child.Resolve<LifetimeConsumer>().Clock;
+
+		Assert.NotSame(parentClock, first);
+		Assert.Equal(childLifetime == Lifetime.Singleton, ReferenceEquals(first, second));
+	}
+
+	private sealed class LifetimeConsumer(IClock clock)
+	{
+		public IClock Clock { get; } = clock;
+	}
+
+	private sealed class DisposalConsumer(IClock clock)
+	{
+		public IClock Clock { get; } = clock;
+	}
+	private sealed class DisposalCallback(Action callback) : IDisposable
+	{
+		public void Dispose() => callback();
+	}
+
 	private interface IClock;
 	private sealed class Clock : IClock;
 	private sealed class ManualTransient(IClock clock)
