@@ -96,7 +96,7 @@ public sealed class ContainerBuilder
 
 		_parent?.ThrowIfDisposed();
 		var registrations = _registrations.Select(draft => draft.Snapshot()).ToArray();
-		var bindings = new Dictionary<Type, Binding>();
+		var bindings = new Dictionary<RuntimeTypeHandle, Binding>();
 		var container = new Container(bindings, _parent);
 		foreach (var registration in registrations)
 		{
@@ -110,10 +110,10 @@ public sealed class ContainerBuilder
 
 			foreach (var contract in registration.Contracts)
 			{
-				if (contract == typeof(IResolver))
+				if (contract.TypeHandle.Equals(typeof(IResolver).TypeHandle))
 					throw new RegistrationException("IResolver is reserved for the current container.");
 
-				if (!bindings.TryAdd(contract, binding))
+				if (!bindings.TryAdd(contract.TypeHandle, binding))
 					throw new RegistrationException($"Service {contract} is already registered.");
 			}
 		}

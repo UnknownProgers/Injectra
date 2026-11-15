@@ -8,7 +8,7 @@ public sealed class Container : IResolver, IDisposable
 {
 	private Container? _parent;
 	// Local registrations only; ancestors keep their own tables.
-	private readonly Dictionary<Type, Binding> _bindings;
+	private readonly Dictionary<RuntimeTypeHandle, Binding> _bindings;
 	private readonly List<Container> _children = [];
 	private readonly List<Binding> _path = [];
 	private readonly HashSet<object> _externalInstances = new(ReferenceEqualityComparer.Instance);
@@ -19,12 +19,12 @@ public sealed class Container : IResolver, IDisposable
 	// Canonical inherited binding -> child plan. Aliases share a single plan.
 	private Dictionary<Binding, Binding>? _inheritedBindings;
 	// Inherited and closed generic contracts requested by this container.
-	private Dictionary<Type, Binding>? _lookupCache;
+	private Dictionary<RuntimeTypeHandle, Binding>? _lookupCache;
 
 	private Dictionary<(Binding Definition, Type Implementation), Binding>? _closedGenerics;
 	private bool _disposed;
 
-	internal Container(Dictionary<Type, Binding> bindings, Container? parent = null)
+	internal Container(Dictionary<RuntimeTypeHandle, Binding> bindings, Container? parent = null)
 	{
 		_bindings = bindings;
 		_parent = parent;
@@ -62,7 +62,7 @@ public sealed class Container : IResolver, IDisposable
 	{
 		ThrowIfDisposed();
 		ArgumentNullException.ThrowIfNull(serviceType);
-		if (_bindings.TryGetValue(serviceType, out var local) && local.Prepared)
+		if (_bindings.TryGetValue(serviceType.TypeHandle, out var local) && local.Prepared)
 			return local.Instance ?? ResolveBinding(local);
 
 		if (serviceType.ContainsGenericParameters)
@@ -101,10 +101,10 @@ public sealed class Container : IResolver, IDisposable
 
 	private Binding? FindLocalBinding(Type type)
 	{
-		if (_bindings.TryGetValue(type, out var exact))
+		if (_bindings.TryGetValue(type.TypeHandle, out var exact))
 			return exact;
 
-		if (type.IsConstructedGenericType && _bindings.TryGetValue(type.GetGenericTypeDefinition(), out var open))
+		if (type.IsConstructedGenericType && _bindings.TryGetValue(type.GetGenericTypeDefinition().TypeHandle, out var open))
 			return open;
 
 		return null;
@@ -155,13 +155,14 @@ public sealed class Container : IResolver, IDisposable
 
 	private Binding? FindBinding(Type type)
 	{
-		if (type == typeof(IResolver))
+		var handle = type.TypeHandle;
+		if (handle.Equals(typeof(IResolver).TypeHandle))
 			return _resolverBinding;
 
-		if (_bindings.TryGetValue(type, out var local))
+		if (_bindings.TryGetValue(handle, out var local))
 			return local;
 
-		if (_lookupCache is not null && _lookupCache.TryGetValue(type, out var cached))
+		if (_lookupCache is not null && _lookupCache.TryGetValue(handle, out var cached))
 			return cached;
 
 		var source = FindLocalBinding(type) ?? FindParentBinding(type);
@@ -178,7 +179,7 @@ public sealed class Container : IResolver, IDisposable
 
 		// Recursive preparation may return an unfinished binding solely for cycle detection.
 		if (binding.Prepared)
-			(_lookupCache ??= []).TryAdd(type, binding);
+			(_lookupCache ??= []).TryAdd(handle, binding);
 
 		return binding;
 	}
