@@ -13,7 +13,7 @@ public sealed class InjectraLifecycle : IDisposable
 	private Container? _source;
 	private readonly LifecycleDispatcher _root;
 	private readonly List<LifecycleDispatcher> _dispatchers = [];
-	private readonly Dictionary<RuntimeTypeHandle, (Type Argument, Func<Container, IPhase> Create)> _phases = [];
+	private readonly Dictionary<RuntimeTypeHandle, (Type Argument, Func<Container, IPhase?> Create)> _phases = [];
 	private readonly Queue<Container> _pendingChildren = [];
 	private State _state;
 	private bool _sealed;
@@ -37,7 +37,7 @@ public sealed class InjectraLifecycle : IDisposable
 			throw new InvalidOperationException("UseLifecycle configuration must not initialize or dispose the manager.");
 
 		_sealed = true;
-		_source!.Closing = _root.Stop;
+		_source!.Closing = _root.Dispose;
 		_source!.ChildBuilt = ChildBuilt;
 		foreach (var child in _source!.Children)
 			_pendingChildren.Enqueue(child);
@@ -81,10 +81,13 @@ public sealed class InjectraLifecycle : IDisposable
 			foreach (var (type, phase) in _phases)
 				dispatcher.AddPhase(type, phase.Create(child));
 
-			foreach (var existing in _dispatchers)
-				dispatcher.ValidateAgainst(existing);
+			if (dispatcher.HasParticipants)
+			{
+				foreach (var existing in _dispatchers)
+					dispatcher.ValidateAgainst(existing);
+			}
 
-			child.Closing = dispatcher.Stop;
+			child.Closing = dispatcher.Dispose;
 			child.ChildBuilt = ChildBuilt;
 			_dispatchers.Add(dispatcher);
 			if (_state == State.Ready)
@@ -145,8 +148,8 @@ public sealed class InjectraLifecycle : IDisposable
 	private void AddPhase<TPhase, TArgument>(Action<TPhase, TArgument> invoke) where TPhase : class
 	{
 		var type = typeof(TPhase).TypeHandle;
-		_root.AddPhase(type, new Phase<TPhase, TArgument>(_source!, invoke));
-		_phases.Add(type, (typeof(TArgument), container => new Phase<TPhase, TArgument>(container, invoke)));
+		_root.AddPhase(type, Phase<TPhase, TArgument>.Create(_source!, invoke));
+		_phases.Add(type, (typeof(TArgument), container => Phase<TPhase, TArgument>.Create(container, invoke)));
 	}
 
 	/// <summary>Registers a custom phase and prepares its local root participants.</summary>

@@ -141,6 +141,19 @@ public sealed class InjectraLifecycleTests
 	}
 
 	[Fact]
+	public void EmptyRegisteredPhaseStillValidatesItsArgumentAndCanRun()
+	{
+		var builder = new ContainerBuilder().UseLifecycle(l =>
+			l.RegisterPhase<IPhysicsTick, double>(static (p, dt) => p.PhysicsTick(dt)));
+		using var container = builder.Build();
+		var lifecycle = container.Resolve<InjectraLifecycle>();
+		lifecycle.Initialize();
+		lifecycle.Dispatch<IPhysicsTick, double>(0.02);
+		Assert.Throws<InvalidOperationException>(() => lifecycle.Dispatch<IPhysicsTick, float>(0.02f));
+		Assert.Throws<InvalidOperationException>(() => lifecycle.Dispatch<IUnknown, double>(0.02));
+	}
+
+	[Fact]
 	public void InvalidAndLatePhaseRegistrationsAreRejected()
 	{
 		Assert.Throws<ArgumentNullException>(() => BuildWith(l => l.RegisterPhase<IPhysicsTick, double>(null!)));

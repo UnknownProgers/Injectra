@@ -243,6 +243,30 @@ public sealed class ChildLifecycleIntegrationTests
 	}
 
 	[Fact]
+	public void EqualButDistinctParticipantsCanJoinDifferentContainers()
+	{
+		var first = new EqualTick();
+		var second = new EqualTick();
+		var builder = new ContainerBuilder().UseLifecycle();
+		builder.RegisterInstance<IFrameTickable>(first);
+		using var root = builder.Build();
+		using var child = root.CreateChild(b => b.RegisterInstance<IFrameTickable>(second));
+		var lifecycle = root.Resolve<InjectraLifecycle>();
+		lifecycle.Initialize();
+		lifecycle.Tick(0.1);
+		Assert.Equal(1, first.Ticks);
+		Assert.Equal(1, second.Ticks);
+	}
+
+	private sealed class EqualTick : IFrameTickable
+	{
+		internal int Ticks;
+		public void FrameTick(double deltaTime) => Ticks++;
+		public override bool Equals(object? obj) => obj is EqualTick;
+		public override int GetHashCode() => 0;
+	}
+
+	[Fact]
 	public void WarmDispatchWithChildrenDoesNotAllocate()
 	{
 		using var root = new ContainerBuilder().UseLifecycle().Build();

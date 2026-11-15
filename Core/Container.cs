@@ -28,7 +28,7 @@ public sealed class Container : IResolver, IDisposable
 	internal bool IsDisposed => _disposed;
 	internal IReadOnlyList<Container> Children => _children;
 	internal Action<Container>? ChildBuilt { get; set; }
-	internal Action<Container>? Closing { get; set; }
+	internal Action? Closing { get; set; }
 
 	internal Container(Dictionary<RuntimeTypeHandle, Binding[]> bindings, Container? parent = null)
 	{
@@ -425,12 +425,12 @@ public sealed class Container : IResolver, IDisposable
 
 	internal void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
-	private void StopLifecycle()
+	private void NotifyClosing()
 	{
-		Closing?.Invoke(this);
+		Closing?.Invoke();
 		Closing = null;
 		foreach (var child in _children)
-			child.StopLifecycle();
+			child.NotifyClosing();
 	}
 
 	/// <summary>Disposes children, then owned instances in reverse acquisition order, and releases container references.</summary>
@@ -448,7 +448,7 @@ public sealed class Container : IResolver, IDisposable
 
 		EnsureNotResolving();
 		_disposed = true;
-		StopLifecycle();
+		NotifyClosing();
 		List<Exception>? errors = null;
 		var children = _children.ToArray();
 		_children.Clear();

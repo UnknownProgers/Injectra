@@ -243,7 +243,8 @@ The same rule applies to custom phases. An instance may participate in several p
 phase is an error. Participant order is unspecified.
 
 The manager is an owned singleton, created during Build. Each container has an internal dispatcher that collects only its local
-participants. Phase configuration runs during Build and is then frozen. Initialization remains an explicit call after Build. Participating services must be singleton
+participants. Empty phases allocate no phase object, participant set, or local phase dictionary. Phase configuration runs during
+Build and is then frozen. Initialization remains an explicit call after Build. Participating services must be singleton
 or instance registrations; transients are rejected. The container disposes its owned services, while existing instances retain their
 configured ownership. The manager does not dispose participants itself.
 
