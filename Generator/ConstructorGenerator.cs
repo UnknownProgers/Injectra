@@ -13,55 +13,24 @@ public sealed class ConstructorGenerator : IIncrementalGenerator
 	/// <inheritdoc />
 	public void Initialize(IncrementalGeneratorInitializationContext context)
 	{
-		// Return source strings rather than retaining symbols/compilations in incremental models.
-		var constructors = context.SyntaxProvider.CreateSyntaxProvider(
-				static (node, _) => node is InvocationExpressionSyntax invocation &&
-					invocation.Expression is MemberAccessExpressionSyntax member &&
-					member.Name.Identifier.ValueText is KnownNames.RegisterMethod or KnownNames.ResolveMethod,
-				static (syntax, cancellationToken) => Describe(syntax, cancellationToken))
-			.Where(static source => source is not null);
+		// Syntax is collected for cross-registration inference; symbols stay inside a single generation pass.
+		var calls = context.SyntaxProvider.CreateSyntaxProvider(
+			static (node, _) => node is InvocationExpressionSyntax invocation &&
+				invocation.Expression is MemberAccessExpressionSyntax member &&
+				member.Name.Identifier.ValueText is KnownNames.RegisterMethod or KnownNames.ResolveMethod,
+			static (syntax, _) => (InvocationExpressionSyntax)syntax.Node);
 
-		context.RegisterSourceOutput(constructors.Collect(), static (output, sources) => Emit(output, sources));
+		context.RegisterSourceOutput(calls.Collect().Combine(context.CompilationProvider), static (output, input) =>
+		{
+			var compilation = input.Right;
+			var types = GenericConstructorDiscovery.Find(compilation, input.Left, output.CancellationToken);
+			var sources = types.Select(type => Describe(type, compilation)).ToImmutableArray();
+			Emit(output, sources);
+		});
 	}
 
-	private static string? Describe(GeneratorSyntaxContext context, CancellationToken cancellationToken)
+	private static string? Describe(INamedTypeSymbol type, Compilation compilation)
 	{
-		var invocation = (InvocationExpressionSyntax)context.Node;
-		if (context.SemanticModel.GetSymbolInfo(invocation, cancellationToken).Symbol is not IMethodSymbol method)
-			return null;
-
-		var core = method.ContainingAssembly;
-		if (core.Name != KnownNames.CoreAssembly)
-			return null;
-
-		// Resolve canonical types from the method's assembly, even if the consumer declares shadowing types.
-		var owner = method.ContainingType;
-		var registration = method.Name == KnownNames.RegisterMethod &&
-			SymbolEqualityComparer.Default.Equals(owner, core.GetTypeByMetadataName(KnownNames.ContainerBuilder));
-		var resolution = method.Name == KnownNames.ResolveMethod &&
-			(SymbolEqualityComparer.Default.Equals(owner, core.GetTypeByMetadataName(KnownNames.Container)) ||
-				SymbolEqualityComparer.Default.Equals(owner, core.GetTypeByMetadataName(KnownNames.Resolver)));
-		if (!registration && !resolution)
-			return null;
-
-		var compilation = context.SemanticModel.Compilation;
-
-		ITypeSymbol? candidate = null;
-		if (method.IsGenericMethod && (!registration || method.Parameters.Length == 1))
-			candidate = method.TypeArguments[0];
-		else if (!method.IsGenericMethod)
-		{
-			var typeOf = invocation.ArgumentList.Arguments
-				.Select(argument => argument.Expression)
-				.OfType<TypeOfExpressionSyntax>()
-				.FirstOrDefault();
-			if (typeOf is not null)
-				candidate = context.SemanticModel.GetTypeInfo(typeOf.Type, cancellationToken).Type;
-		}
-
-		if (candidate is not INamedTypeSymbol type || !CanGenerate(type, compilation))
-			return null;
-
 		var constructors = type.InstanceConstructors.Where(ctor => ctor.DeclaredAccessibility == Accessibility.Public).ToArray();
 		if (constructors.Length != 1)
 			return null;
@@ -114,11 +83,11 @@ public sealed class ConstructorGenerator : IIncrementalGenerator
 		return prefix + text.Replace("\n", "\n" + prefix);
 	}
 
-	private static bool CanGenerate(INamedTypeSymbol type, Compilation compilation) =>
+	internal static bool CanGenerate(INamedTypeSymbol type, Compilation compilation) =>
 		type.TypeKind == TypeKind.Class && !type.IsAbstract && !type.IsStatic &&
 		SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, compilation.Assembly) && CanName(type, compilation);
 
-	private static bool CanName(ITypeSymbol type, Compilation compilation)
+	internal static bool CanName(ITypeSymbol type, Compilation compilation)
 	{
 		if (type.TypeKind is TypeKind.TypeParameter or TypeKind.Error or TypeKind.Pointer or TypeKind.FunctionPointer || type.IsRefLikeType)
 			return false;
@@ -149,7 +118,7 @@ public sealed class ConstructorGenerator : IIncrementalGenerator
 			SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, obsoleteAttribute) &&
 			attribute.ConstructorArguments.Length > 1 && attribute.ConstructorArguments[1].Value is true);
 
-	private static string Name(ITypeSymbol type) => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+	internal static string Name(ITypeSymbol type) => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
 	private static void Emit(SourceProductionContext context, ImmutableArray<string?> sources)
 	{

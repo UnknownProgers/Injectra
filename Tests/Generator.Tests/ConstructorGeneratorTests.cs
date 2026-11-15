@@ -326,7 +326,7 @@ public sealed class ConstructorGeneratorTests
 		Assert.Equal(true, Run(result.Compilation));
 	}
 
-	private static (Compilation Compilation, string Source) Generate(string source, bool aliasCore = false)
+	internal static (Compilation Compilation, string Source) Generate(string source, bool aliasCore = false)
 	{
 		var syntax = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
 		var references = References.Select(reference => aliasCore && reference.Display == typeof(Container).Assembly.Location
@@ -347,7 +347,7 @@ public sealed class ConstructorGeneratorTests
 		return (updated, string.Join("\n", trees.Select(tree => tree.ToString())));
 	}
 
-	private static object? Run(Compilation compilation, string entry = "Entry")
+	internal static object? Run(Compilation compilation, string entry = "Entry")
 	{
 		using var stream = new MemoryStream();
 		var result = compilation.Emit(stream);

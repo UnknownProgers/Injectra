@@ -6,7 +6,7 @@
 		<PackageId>Injectra.Core</PackageId>
 		<Description>A lightweight dependency injection library for .NET, designed primarily for game development.</Description>
 		<RepositoryUrl>https://github.com/UnknownProgers/Injectra</RepositoryUrl>
-		<Version>0.4.0-alpha.2</Version>
+		<Version>0.4.0-alpha.3</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<ProjectReference Include="../Generator/Generator.csproj" ReferenceOutputAssembly="false" PrivateAssets="all"/>
