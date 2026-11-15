@@ -1,11 +1,27 @@
-# Injectra
+<p align="center">
+  <img src="icon.png" alt="Injectra Logo" width="120"/>
+</p>
 
-A lightweight dependency injection library for .NET, designed primarily for game development. Inspired
-by [VContainer](https://github.com/hadashiA/VContainer), [Zenject](https://github.com/modesttree/Zenject),
+<h1 align="center">Injectra</h1>
+
+<p align="center">
+  A lightweight dependency injection library for .NET, designed primarily for game development.
+</p>
+
+<p align="center">
+  <!-- <a href="https://github.com/UnknownProgers/Injectra/releases">
+    <img src="https://img.shields.io/github/v/release/UnknownProgers/Injectra?label=release">
+  </a> -->
+  <a href="https://www.nuget.org/packages/Injectra/">
+    <img src="https://img.shields.io/nuget/v/Injectra?label=nuget">
+  </a>
+</p>
+
+Inspired by [VContainer](https://github.com/hadashiA/VContainer), [Zenject](https://github.com/modesttree/Zenject),
 and [Microsoft.Extensions.DependencyInjection](https://github.com/dotnet/runtime/tree/main/src/libraries/Microsoft.Extensions.DependencyInjection).
 
-Injectra focuses on explicit registration, constructor injection, and predictable lifetimes with a small API. The core is engine-independent
-C#.
+Injectra focuses on explicit registration, constructor injection, and predictable lifetimes with a small API. 
+The core is engine-independent C#.
 
 Currently in alpha. Targets .NET 11; building the repository requires the SDK specified in `global.json`.
 
