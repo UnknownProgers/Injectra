@@ -202,6 +202,54 @@ it. Open generic inference is supported for discoverable closed types. Types the
 No separate registration syntax is needed. When referencing the projects directly, add the generator as an analyzer, as shown
 in [Core.Tests.csproj](Tests/Core.Tests/Core.Tests.csproj).
 
+## Lifecycle integration
+
+Reference `Injectra.Lifecycle` to enable lifecycle dispatch for a root container. Register custom phases through `UseLifecycle`:
+
+```csharp
+using Injectra.Lifecycle;
+
+var builder = new ContainerBuilder();
+builder.UseLifecycle(lifecycle =>
+	lifecycle.RegisterPhase<IPhysicsTick, double>(
+		static (service, delta) => service.PhysicsTick(delta)));
+builder.Register<GameSession>(Lifetime.Singleton)
+	.AsImplementedInterfaces();
+
+using var container = builder.Build();
+var lifecycle = container.Resolve<InjectraLifecycle>();
+lifecycle.Initialize();
+
+// Your game loop or engine adapter supplies the timing:
+lifecycle.Tick(1.0 / 60);
+lifecycle.Dispatch<IPhysicsTick, double>(1.0 / 60);
+
+public interface IPhysicsTick
+{
+	void PhysicsTick(double deltaTime);
+}
+
+public sealed class GameSession : IInitializable, IFrameTick, IPhysicsTick
+{
+	public void Initialize() { }
+	public void FrameTick(double deltaTime) { }
+	public void PhysicsTick(double deltaTime) { }
+}
+```
+
+Only explicitly exposed contracts participate. `.As<IFrameTick>()` enables frame callbacks but does not enable `Initialize()` just
+because the class implements `IInitializable`. Use `.As<IInitializable>()` for initialization, or `.AsImplementedInterfaces()` for both.
+The same rule applies to custom phases. An instance may participate in several phases; registering the same instance twice within one
+phase is an error. Participant order is unspecified.
+
+The manager is an owned singleton, created during Build. Its factory collects participants through `ResolveAll`; phase configuration
+also runs during Build and is then frozen. Initialization remains an explicit call after Build. Participating services must be singleton
+or instance registrations; transients are rejected. The container disposes its owned services, while existing instances retain their
+configured ownership. The manager does not dispose participants itself.
+
+This first integration supports root registrations only. Children do not automatically join the application's lifecycle, and calling
+`UseLifecycle` on a child fails during Build. Dynamic participation is a later step. Concurrent dispatch is unsupported.
+
 ## Performance
 
 Latest recorded comparison

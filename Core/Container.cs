@@ -23,6 +23,8 @@ public sealed class Container : IResolver, IDisposable
 
 	private Dictionary<(Binding Definition, Type Implementation), Binding>? _closedGenerics;
 	private bool _disposed;
+	private int _activeOperations;
+	internal bool IsRoot => _parent is null;
 
 	internal Container(Dictionary<RuntimeTypeHandle, Binding[]> bindings, Container? parent = null)
 	{
@@ -119,11 +121,32 @@ public sealed class Container : IResolver, IDisposable
 		return results;
 	}
 
+	internal void EnsureSingletons(Type contract)
+	{
+		var bindings = FindBindings(contract);
+		if (bindings is null)
+			return;
+
+		foreach (var binding in bindings)
+		{
+			if (binding.Lifetime != Lifetime.Singleton)
+				throw new RegistrationException($"Contract {contract} requires singleton or instance registrations.");
+		}
+	}
+
+	internal void BeginOperation()
+	{
+		ThrowIfDisposed();
+		_activeOperations++;
+	}
+
+	internal void EndOperation() => _activeOperations--;
+
 	internal void PrepareBindings()
 	{
 		foreach (var bindings in _bindings.Values)
-			foreach (var binding in bindings)
-				PrepareBinding(binding);
+		foreach (var binding in bindings)
+			PrepareBinding(binding);
 	}
 
 	private Binding[]? FindParentBindings(Type type)
@@ -369,7 +392,7 @@ public sealed class Container : IResolver, IDisposable
 
 	/// <summary>Disposes children, then owned instances in reverse acquisition order, and releases container references.</summary>
 	/// <exception cref="AggregateException">One or more owned objects failed to dispose; remaining cleanup still runs.</exception>
-	/// <exception cref="InvalidOperationException">This container or a descendant is currently creating a service.</exception>
+	/// <exception cref="InvalidOperationException">This container or a descendant is currently creating a service or running a callback.</exception>
 	/// <remarks>Repeated calls do nothing. Transients and externally owned instances are not disposed. Resolution is forbidden during cleanup.</remarks>
 	public void Dispose()
 	{
@@ -422,8 +445,8 @@ public sealed class Container : IResolver, IDisposable
 
 	private void EnsureNotResolving()
 	{
-		if (_path.Count != 0)
-			throw new InvalidOperationException("A container cannot be disposed while it is creating a service.");
+		if (_path.Count != 0 || _activeOperations != 0)
+			throw new InvalidOperationException("A container cannot be disposed while it is creating a service or running a callback.");
 
 		foreach (var child in _children)
 			child.EnsureNotResolving();

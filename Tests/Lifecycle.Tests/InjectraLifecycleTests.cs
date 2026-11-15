@@ -9,7 +9,8 @@ public sealed class InjectraLifecycleTests
 	public void InitializationIsExplicitAndRunsOnce()
 	{
 		var participant = new Participant();
-		using var lifecycle = new InjectraLifecycle([participant]);
+		using var setup = new LifecycleSetup([participant]);
+		var lifecycle = setup.Lifecycle;
 		Assert.Equal(0, participant.Initializations);
 		Assert.Throws<InvalidOperationException>(() => lifecycle.Tick(0.1));
 		lifecycle.Initialize();
@@ -25,9 +26,8 @@ public sealed class InjectraLifecycleTests
 	public void CustomPhaseInvokesOnlyMatchingParticipantsWithItsArgument()
 	{
 		var participant = new Participant();
-		using var lifecycle = new InjectraLifecycle([participant, new object()])
-			.RegisterPhase<IPhysicsTick, double>(static (service, delta) => service.PhysicsTick(delta));
-
+		using var setup = new LifecycleSetup([participant, new object()]);
+		var lifecycle = setup.Lifecycle;
 		lifecycle.Initialize();
 		lifecycle.Dispatch<IPhysicsTick, double>(0.02);
 		Assert.Equal(1, participant.PhysicsCalls);
@@ -47,9 +47,9 @@ public sealed class InjectraLifecycleTests
 			Assert.Equal(1, first.Initializations);
 			Assert.Equal(1, second.Initializations);
 		};
-		using var lifecycle = new InjectraLifecycle([first, second]);
-		lifecycle.Initialize();
-		lifecycle.Tick(0.1);
+		using var setup = new LifecycleSetup([first, second]);
+		setup.Lifecycle.Initialize();
+		setup.Lifecycle.Tick(0.1);
 		Assert.Equal(1, first.Frames);
 		Assert.Equal(1, second.Frames);
 	}
@@ -59,11 +59,11 @@ public sealed class InjectraLifecycleTests
 	{
 		var expected = new ApplicationException("initialization");
 		var participant = new Participant { Initializing = () => throw expected };
-		using var lifecycle = new InjectraLifecycle([participant]);
+		using var setup = new LifecycleSetup([participant]);
+		var lifecycle = setup.Lifecycle;
 		Assert.Same(expected, Assert.Throws<ApplicationException>(() => lifecycle.Initialize()));
 		Assert.Throws<InvalidOperationException>(() => lifecycle.Initialize());
 		Assert.Throws<InvalidOperationException>(() => lifecycle.Tick(0.1));
-		Assert.Throws<InvalidOperationException>(() => lifecycle.RegisterPhase<IPhysicsTick, double>(static (p, dt) => p.PhysicsTick(dt)));
 		Assert.Equal(0, participant.Disposals);
 	}
 
@@ -72,7 +72,8 @@ public sealed class InjectraLifecycleTests
 	{
 		var expected = new ApplicationException("tick");
 		var participant = new Participant { Ticking = () => throw expected };
-		using var lifecycle = new InjectraLifecycle([participant]);
+		using var setup = new LifecycleSetup([participant]);
+		var lifecycle = setup.Lifecycle;
 		lifecycle.Initialize();
 		Assert.Same(expected, Assert.Throws<ApplicationException>(() => lifecycle.Tick(0.1)));
 		participant.Ticking = null;
@@ -86,12 +87,11 @@ public sealed class InjectraLifecycleTests
 		var calls = 0;
 		var expected = new ApplicationException("tick");
 		Action fail = () => { calls++; throw expected; };
-		using var lifecycle = new InjectraLifecycle([
-			new Participant { Ticking = fail },
-			new Participant { Ticking = fail }
+		using var setup = new LifecycleSetup([
+			new Participant { Ticking = fail }, new Participant { Ticking = fail }
 		]);
-		lifecycle.Initialize();
-		Assert.Same(expected, Assert.Throws<ApplicationException>(() => lifecycle.Tick(0.1)));
+		setup.Lifecycle.Initialize();
+		Assert.Same(expected, Assert.Throws<ApplicationException>(() => setup.Lifecycle.Tick(0.1)));
 		Assert.Equal(1, calls);
 	}
 
@@ -99,16 +99,14 @@ public sealed class InjectraLifecycleTests
 	public void ReentryAndDisposalDuringInitializationAreRejected()
 	{
 		InjectraLifecycle? lifecycle = null;
-		var participant = new Participant
+		var participant = new Participant { Initializing = () =>
 		{
-			Initializing = () =>
-			{
-				Assert.Throws<InvalidOperationException>(() => lifecycle!.Initialize());
-				Assert.Throws<InvalidOperationException>(() => lifecycle!.Tick(0.1));
-				Assert.Throws<InvalidOperationException>(() => lifecycle!.Dispose());
-			}
-		};
-		using var owned = lifecycle = new InjectraLifecycle([participant]);
+			Assert.Throws<InvalidOperationException>(() => lifecycle!.Initialize());
+			Assert.Throws<InvalidOperationException>(() => lifecycle!.Tick(0.1));
+			Assert.Throws<InvalidOperationException>(() => lifecycle!.Dispose());
+		} };
+		using var setup = new LifecycleSetup([participant]);
+		lifecycle = setup.Lifecycle;
 		lifecycle.Initialize();
 		lifecycle.Tick(0.1);
 		Assert.Equal(1, participant.Frames);
@@ -118,17 +116,14 @@ public sealed class InjectraLifecycleTests
 	public void CrossPhaseReentryAndDisposalDuringDispatchAreRejected()
 	{
 		InjectraLifecycle? lifecycle = null;
-		var participant = new Participant
+		var participant = new Participant { Ticking = () =>
 		{
-			Ticking = () =>
-			{
-				Assert.Throws<InvalidOperationException>(() => lifecycle!.Tick(0.1));
-				Assert.Throws<InvalidOperationException>(() => lifecycle!.Dispatch<IPhysicsTick, double>(0.02));
-				Assert.Throws<InvalidOperationException>(() => lifecycle!.Dispose());
-			}
-		};
-		using var owned = lifecycle = new InjectraLifecycle([participant])
-			.RegisterPhase<IPhysicsTick, double>(static (p, dt) => p.PhysicsTick(dt));
+			Assert.Throws<InvalidOperationException>(() => lifecycle!.Tick(0.1));
+			Assert.Throws<InvalidOperationException>(() => lifecycle!.Dispatch<IPhysicsTick, double>(0.02));
+			Assert.Throws<InvalidOperationException>(() => lifecycle!.Dispose());
+		} };
+		using var setup = new LifecycleSetup([participant]);
+		lifecycle = setup.Lifecycle;
 		lifecycle.Initialize();
 		lifecycle.Tick(0.1);
 		lifecycle.Dispatch<IPhysicsTick, double>(0.02);
@@ -138,21 +133,20 @@ public sealed class InjectraLifecycleTests
 	[Fact]
 	public void InvalidAndLatePhaseRegistrationsAreRejected()
 	{
-		using var lifecycle = new InjectraLifecycle([]);
-		Assert.Throws<ArgumentNullException>(() => lifecycle.RegisterPhase<IPhysicsTick, double>(null!));
-		Assert.Throws<ArgumentException>(() => lifecycle.RegisterPhase<object, double>(static (_, _) => { }));
-		Assert.Throws<ArgumentException>(() => lifecycle.RegisterPhase<IInitializable, double>(static (p, _) => p.Initialize()));
-		Assert.Throws<InvalidOperationException>(() => lifecycle.RegisterPhase<IFrameTick, double>(static (p, dt) => p.FrameTick(dt)));
-		lifecycle.Initialize();
-		Assert.Throws<InvalidOperationException>(() => lifecycle.RegisterPhase<IPhysicsTick, double>(static (p, dt) => p.PhysicsTick(dt)));
-		lifecycle.Tick(0.1);
+		Assert.Throws<ArgumentNullException>(() => BuildWith(l => l.RegisterPhase<IPhysicsTick, double>(null!)));
+		Assert.Throws<ArgumentException>(() => BuildWith(l => l.RegisterPhase<object, double>(static (_, _) => { })));
+		Assert.Throws<ArgumentException>(() => BuildWith(l => l.RegisterPhase<IInitializable, double>(static (p, _) => p.Initialize())));
+		Assert.Throws<InvalidOperationException>(() => BuildWith(l => l.RegisterPhase<IFrameTickable, double>(static (p, dt) => p.FrameTick(dt))));
+		using var setup = new LifecycleSetup([]);
+		Assert.Throws<InvalidOperationException>(() => setup.Lifecycle.RegisterPhase<IUnknown, double>(static (_, _) => { }));
 	}
 
 	[Fact]
 	public void DisposeStopsAllOperationsWithoutDisposingParticipants()
 	{
 		var participant = new Participant();
-		var lifecycle = new InjectraLifecycle([participant]);
+		using var setup = new LifecycleSetup([participant]);
+		var lifecycle = setup.Lifecycle;
 		lifecycle.Initialize();
 		lifecycle.Dispose();
 		lifecycle.Dispose();
@@ -168,9 +162,9 @@ public sealed class InjectraLifecycleTests
 	{
 		var first = new EqualParticipant();
 		var second = new EqualParticipant();
-		using var lifecycle = new InjectraLifecycle([first, second]);
-		lifecycle.Initialize();
-		lifecycle.Tick(0.1);
+		using var setup = new LifecycleSetup([first, second]);
+		setup.Lifecycle.Initialize();
+		setup.Lifecycle.Tick(0.1);
 		Assert.Equal(1, first.Frames);
 		Assert.Equal(1, second.Frames);
 	}
@@ -179,26 +173,22 @@ public sealed class InjectraLifecycleTests
 	public void DuplicateInstanceIsRejectedBeforeInitialization()
 	{
 		var participant = new Participant();
-		var error = Assert.Throws<ArgumentException>(() => new InjectraLifecycle([participant, participant]));
-		Assert.Equal("participants", error.ParamName);
+		Assert.Throws<RegistrationException>(() => new LifecycleSetup([participant, participant]));
 		Assert.Equal(0, participant.Initializations);
 		Assert.Equal(0, participant.Frames);
 	}
 
 	[Fact]
-	public void NullParticipantsAreRejected()
+	public void LifecycleHasNoPublicConstructors()
 	{
-		Assert.Throws<ArgumentNullException>(() => new InjectraLifecycle(null!));
-		Assert.Throws<ArgumentException>(() => new InjectraLifecycle([new object(), null!]));
+		Assert.Empty(typeof(InjectraLifecycle).GetConstructors());
 	}
 
 	[Fact]
-	public void DisposeReleasesParticipantReferences()
+	public void DisposedOwnerAndManagerReleaseParticipantReferences()
 	{
 		var (lifecycle, weak) = CreateDisposedManager();
-		GC.Collect();
-		GC.WaitForPendingFinalizers();
-		GC.Collect();
+		GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
 		Assert.False(weak.IsAlive);
 		GC.KeepAlive(lifecycle);
 	}
@@ -206,8 +196,8 @@ public sealed class InjectraLifecycleTests
 	[Fact]
 	public void WarmDispatchDoesNotAllocate()
 	{
-		using var lifecycle = new InjectraLifecycle([new Participant()])
-			.RegisterPhase<IPhysicsTick, double>(static (p, dt) => p.PhysicsTick(dt));
+		using var setup = new LifecycleSetup([new Participant()]);
+		var lifecycle = setup.Lifecycle;
 		lifecycle.Initialize();
 		for (var i = 0; i < 1024; i++)
 		{
@@ -223,18 +213,41 @@ public sealed class InjectraLifecycleTests
 		Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
 	}
 
+	private static void BuildWith(Action<InjectraLifecycle> configure)
+	{
+		using var container = new ContainerBuilder().UseLifecycle(configure).Build();
+	}
+
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	private static (InjectraLifecycle, WeakReference) CreateDisposedManager()
 	{
 		var participant = new Participant();
-		var lifecycle = new InjectraLifecycle([participant]);
-		lifecycle.Dispose();
-		return (lifecycle, new WeakReference(participant));
+		using var setup = new LifecycleSetup([participant]);
+		return (setup.Lifecycle, new WeakReference(participant));
+	}
+
+	private sealed class LifecycleSetup : IDisposable
+	{
+		private readonly Container _container;
+		public InjectraLifecycle Lifecycle => _container.Resolve<InjectraLifecycle>();
+		public LifecycleSetup(object[] participants)
+		{
+			var builder = new ContainerBuilder().UseLifecycle(l =>
+				l.RegisterPhase<IPhysicsTick, double>(static (p, dt) => p.PhysicsTick(dt)));
+			foreach (var participant in participants)
+			{
+				if (participant is IInitializable initializable) builder.RegisterInstance(initializable);
+				if (participant is IFrameTickable frame) builder.RegisterInstance(frame);
+				if (participant is IPhysicsTick physics) builder.RegisterInstance(physics);
+			}
+			_container = builder.Build();
+		}
+		public void Dispose() => _container.Dispose();
 	}
 
 	private interface IPhysicsTick { void PhysicsTick(double deltaTime); }
 	private interface IUnknown;
-	private sealed class Participant : IInitializable, IFrameTick, IPhysicsTick, IDisposable
+	private sealed class Participant : IInitializable, IFrameTickable, IPhysicsTick, IDisposable
 	{
 		public Action? Initializing;
 		public Action? Ticking;
@@ -245,7 +258,7 @@ public sealed class InjectraLifecycleTests
 		public void PhysicsTick(double dt) { PhysicsCalls++; PhysicsDelta = dt; }
 		public void Dispose() => Disposals++;
 	}
-	private sealed class EqualParticipant : IFrameTick
+	private sealed class EqualParticipant : IFrameTickable
 	{
 		public int Frames;
 		public void FrameTick(double _) => Frames++;
