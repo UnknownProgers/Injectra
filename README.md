@@ -346,6 +346,29 @@ returning to the game loop.
 - Initialization already performed is not rolled back. Child attachment requested during a callback happens after traversal, so
   attachment errors are reported by that lifecycle call rather than the original `CreateChild()`.
 
+## Diagnostics
+
+Capture a read-only description of a container and its live descendants:
+
+```csharp
+var snapshot = container.GetDiagnostics();
+Console.WriteLine(snapshot.ToString());
+```
+
+The snapshot groups aliases into one registration, lists created singletons and supplied instances first,
+then sorts each group by implementation name. It includes lifetimes, constructor/factory/instance creation,
+ownership, ancestor overrides, and constructor dependency trees with source container IDs.
+All registered contracts, including lifecycle interfaces, appear in the contract list.
+
+Snapshots contain metadata and state, not service instances. They remain usable after the container is disposed.
+Capture and formatting do not resolve services, run factories, prepare inherited graphs, or create generic specializations.
+Transient instances are not tracked; their registrations remain marked as registered even after resolution.
+Factory dependencies are opaque. Open generic definitions are deferred; already cached closed specializations are shown separately.
+Repeated dependency references are marked instead of expanded indefinitely.
+
+Capture uses the same single-threaded model as the container. Container IDs belong to one capture's hierarchy;
+they are diagnostic labels, not persistent identities. Capturing a child returns its subtree; dependency sources may reference ancestors outside it.
+
 ## Performance
 
 Latest recorded comparison

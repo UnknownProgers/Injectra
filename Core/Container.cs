@@ -4,7 +4,7 @@ using Injectra.Internal.Resolution;
 namespace Injectra;
 
 /// <summary>A container and its owned singleton services. Concurrent use is unsupported.</summary>
-public sealed class Container : IResolver, IDisposable
+public sealed partial class Container : IResolver, IDisposable
 {
 	private Container? _parent;
 	// Local registrations only; ancestors keep their own tables.

@@ -6,6 +6,6 @@
 		<LangVersion>15.0</LangVersion>
 		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 		<Deterministic>true</Deterministic>
-		<Version>0.6.0-alpha.1</Version>
+		<Version>0.7.0-alpha.1</Version>
 	</PropertyGroup>
 </Project>
