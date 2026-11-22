@@ -26,6 +26,7 @@ public sealed class Container : IResolver, IDisposable
 	private int _activeOperations;
 	internal bool IsRoot => _parent is null;
 	internal bool IsDisposed => _disposed;
+	internal bool IsPrepared { get; private set; }
 	internal IReadOnlyList<Container> Children => _children;
 	internal Action<Container>? ChildBuilt { get; set; }
 	internal Action? Closing { get; set; }
@@ -34,7 +35,6 @@ public sealed class Container : IResolver, IDisposable
 	{
 		_bindings = bindings;
 		_parent = parent;
-		ChildBuilt = parent?.ChildBuilt;
 		_resolverBindings = [new Binding(typeof(IResolver), Lifetime.Singleton, this) { Owner = this, Prepared = true }];
 	}
 
@@ -49,15 +49,37 @@ public sealed class Container : IResolver, IDisposable
 	/// Inherited contracts are cached on demand. Singletons retain their owner's context;
 	/// transient graphs are prepared for this child and use its overrides.
 	/// </remarks>
-	public Container CreateChild(Action<ContainerBuilder>? configure = null)
+	public Container CreateChild(Action<ContainerBuilder>? configure = null) => CreateChildCore(configure, null);
+
+	/// <summary>Builds and prepares a child before notifying lifecycle dispatch.</summary>
+	/// <param name="configure">Optional local service registrations.</param>
+	/// <param name="prepare">Called after eager creation and before lifecycle attachment and initialization.</param>
+	/// <returns>The prepared child container.</returns>
+	/// <exception cref="ArgumentNullException">The preparation callback is null.</exception>
+	/// <exception cref="ObjectDisposedException">This container or the child has been disposed.</exception>
+	/// <exception cref="RegistrationException">The child's registrations or dependencies are invalid.</exception>
+	/// <exception cref="InvalidOperationException">Configuration attempts to build the builder directly.</exception>
+	/// <exception cref="AggregateException">Preparation or lifecycle setup fails and cleanup also fails.</exception>
+	/// <remarks>
+	/// Callback exceptions propagate and dispose the child. Descendants join after their enclosing preparation completes.
+	/// Creation during a lifecycle callback still defers attachment until traversal ends.
+	/// </remarks>
+	public Container CreateChild(Action<ContainerBuilder>? configure, Action<Container> prepare)
+	{
+		ArgumentNullException.ThrowIfNull(prepare);
+		return CreateChildCore(configure, prepare);
+	}
+
+	private Container CreateChildCore(Action<ContainerBuilder>? configure, Action<Container>? prepare)
 	{
 		ThrowIfDisposed();
 		var builder = new ContainerBuilder(this);
 		configure?.Invoke(builder);
-		var child = builder.BuildChild();
+		var child = builder.BuildChild(prepare);
 		try
 		{
-			ChildBuilt?.Invoke(child);
+			if (IsPrepared)
+				ChildBuilt?.Invoke(child);
 			return child;
 		}
 		catch (Exception setupError)
@@ -72,6 +94,16 @@ public sealed class Container : IResolver, IDisposable
 			}
 			throw;
 		}
+	}
+
+	internal void CompletePreparation()
+	{
+		ThrowIfDisposed();
+		IsPrepared = true;
+		if (ChildBuilt is null)
+			return;
+		for (var i = 0; i < _children.Count; i++)
+			ChildBuilt(_children[i]);
 	}
 
 	/// <inheritdoc />

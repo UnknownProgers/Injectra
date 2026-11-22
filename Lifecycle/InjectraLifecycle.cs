@@ -39,6 +39,9 @@ public sealed class InjectraLifecycle : IDisposable
 		_sealed = true;
 		_source!.Closing = _root.Dispose;
 		_source!.ChildBuilt = ChildBuilt;
+		if (!_source.IsPrepared)
+			return;
+
 		foreach (var child in _source!.Children)
 			_pendingChildren.Enqueue(child);
 
@@ -181,7 +184,7 @@ public sealed class InjectraLifecycle : IDisposable
 
 	/// <summary>Initializes each container's local participants once, before dispatch is allowed.</summary>
 	/// <exception cref="ObjectDisposedException">The manager or its owning container is disposed.</exception>
-	/// <exception cref="InvalidOperationException">Initialization was already attempted or another lifecycle operation is running.</exception>
+	/// <exception cref="InvalidOperationException">Container preparation is incomplete, initialization was already attempted, or another lifecycle operation is running.</exception>
 	/// <exception cref="AggregateException">Child setup or cleanup fails.</exception>
 	/// <remarks>
 	/// Initial participant exceptions leave dispatch disabled and cannot be retried. Pending children are then disposed.
@@ -191,7 +194,7 @@ public sealed class InjectraLifecycle : IDisposable
 	public void Initialize()
 	{
 		ThrowIfDisposed();
-		if (_state != State.Configuring || _running)
+		if (_state != State.Configuring || _running || !_source!.IsPrepared)
 			throw new InvalidOperationException("Initialization can only be attempted once, outside another lifecycle operation.");
 
 		_source!.BeginOperation();

@@ -23,10 +23,10 @@ public sealed class ContainerBuilder
 		_configuringChild = true;
 	}
 
-	internal Container BuildChild()
+	internal Container BuildChild(Action<Container>? prepare = null)
 	{
 		_configuringChild = false;
-		return Build();
+		return BuildCore(prepare);
 	}
 
 	/// <summary>Registers a type for constructor-based creation.</summary>
@@ -92,7 +92,25 @@ public sealed class ContainerBuilder
 	/// User constructor and factory exceptions propagate unchanged unless cleanup also fails.
 	/// Existing instances remain externally owned unless OwnedByContainer is selected.
 	/// </remarks>
-	public Container Build()
+	public Container Build() => BuildCore(null);
+
+	/// <summary>Builds a container and prepares it before its children can join lifecycle dispatch.</summary>
+	/// <param name="prepare">Called after eager creation, with the built container available for resolution.</param>
+	/// <returns>The prepared container.</returns>
+	/// <exception cref="ArgumentNullException">The preparation callback is null.</exception>
+	/// <exception cref="InvalidOperationException">The builder has completed or is inside child configuration.</exception>
+	/// <exception cref="RegistrationException">Registrations or constructor dependencies are invalid.</exception>
+	/// <exception cref="ResolutionException">Eager creation or preparation encounters a resolution error.</exception>
+	/// <exception cref="ObjectDisposedException">The parent or prepared container has been disposed.</exception>
+	/// <exception cref="AggregateException">Preparation or activation fails and cleanup also fails.</exception>
+	/// <remarks>Callback exceptions propagate. Failure disposes the container. Initialize remains an explicit operation after Build returns.</remarks>
+	public Container Build(Action<Container> prepare)
+	{
+		ArgumentNullException.ThrowIfNull(prepare);
+		return BuildCore(prepare);
+	}
+
+	private Container BuildCore(Action<Container>? prepare)
 	{
 		EnsureMutable();
 		if (_configuringChild)
@@ -152,20 +170,25 @@ public sealed class ContainerBuilder
 		_parent?.AttachChild(container);
 		Complete();
 
-		if (eager is not null)
-			CreateNonLazyInstances(container, eager);
+		if (eager is not null || prepare is not null)
+			PrepareContainer(container, eager, prepare);
+		else
+			container.CompletePreparation();
 
 		return container;
 	}
 
-	private static void CreateNonLazyInstances(Container container, List<Binding> bindings)
+	private static void PrepareContainer(Container container, List<Binding>? bindings, Action<Container>? prepare)
 	{
 		try
 		{
-			foreach (var binding in bindings)
-				container.ResolveBinding(binding);
+			if (bindings is not null)
+				foreach (var binding in bindings)
+					container.ResolveBinding(binding);
+			prepare?.Invoke(container);
+			container.CompletePreparation();
 		}
-		catch (Exception activationError)
+		catch (Exception setupError)
 		{
 			try
 			{
@@ -173,7 +196,7 @@ public sealed class ContainerBuilder
 			}
 			catch (Exception cleanupError)
 			{
-				throw new AggregateException("Eager creation and container cleanup failed.", activationError, cleanupError);
+				throw new AggregateException("Container activation or preparation and cleanup failed.", setupError, cleanupError);
 			}
 			throw;
 		}

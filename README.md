@@ -41,7 +41,7 @@ Currently in alpha. Targets .NET 11; building the repository requires the SDK sp
 
 ```sh
 # After this preview is published:
-dotnet add package Injectra --version 0.5.0-alpha.1
+dotnet add package Injectra --version 0.6.0-alpha.1
 ```
 
 One package includes Core, Lifecycle, and the automatically enabled constructor generator. Lifecycle is optional in use:
@@ -84,6 +84,26 @@ Constructor-based services must have exactly one public constructor. No injectio
 
 `Build()` validates and prepares local constructor graphs. Services are created lazily during resolution unless explicitly marked
 `.NonLazy()`. A successful build consumes the builder: registrations cannot be changed or built again.
+
+### Container preparation
+
+Engine integrations can prepare existing objects after construction and before child lifecycle attachment:
+
+```csharp
+using var container = builder.Build(prepared =>
+{
+	// Resolve dependencies and prepare existing objects here.
+});
+
+using var child = container.CreateChild(
+	configure: registrations => registrations.Register<Player>(Lifetime.Transient),
+	prepare: prepared => { /* Prepare this branch before lifecycle initialization. */ });
+```
+
+The order is registration, build/eager creation, preparation, then lifecycle attachment. Root lifecycle initialization remains an explicit
+call after `Build` returns. Descendants created during preparation join only when the enclosing branch is prepared.
+Creation during a lifecycle callback still defers attachment and initialization until the current traversal ends.
+Preparation callbacks are synchronous. A callback failure disposes the failed container and its children; initializers are not run for that branch.
 
 ### Contracts and lifetimes
 
