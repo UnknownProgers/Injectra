@@ -1,14 +1,14 @@
-name: Publish NuGet
+name: Publish Release
 
 on:
-  release:
-    types: [ published ]
+  push:
+    tags: [ 'v*' ]
 
 permissions:
   contents: read
 
 concurrency:
-  group: publish-${{ github.event.release.tag_name }}
+  group: publish-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -26,7 +26,7 @@ jobs:
 
       - name: Validate release version and configuration
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
           NUGET_USER: ${{ vars.NUGET_USER }}
         run: |
           version="$(dotnet msbuild Lifecycle/Lifecycle.csproj -getProperty:Version)"
@@ -64,8 +64,17 @@ jobs:
           --source https://api.nuget.org/v3/index.json
           --skip-duplicate
 
-      - name: Attach package to GitHub Release
+      - name: Create GitHub Release and attach package
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" "publish/Injectra.${PACKAGE_VERSION}.nupkg" --clobber
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "publish/Injectra.${PACKAGE_VERSION}.nupkg" --clobber
+          else
+            options=(--verify-tag --generate-notes --title "$RELEASE_TAG")
+            if [[ "$PACKAGE_VERSION" == *-* ]]; then
+              options+=(--prerelease)
+            fi
+            gh release create "$RELEASE_TAG" "publish/Injectra.${PACKAGE_VERSION}.nupkg" "${options[@]}"
+          fi
