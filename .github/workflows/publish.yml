@@ -1,0 +1,71 @@
+name: Publish NuGet
+
+on:
+  release:
+    types: [ published ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Validate release version and configuration
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          NUGET_USER: ${{ vars.NUGET_USER }}
+        run: |
+          version="$(dotnet msbuild Lifecycle/Lifecycle.csproj -getProperty:Version)"
+          if [[ "$RELEASE_TAG" != "v$version" ]]; then
+            echo "::error::Release tag '$RELEASE_TAG' must match project version 'v$version'."
+            exit 1
+          fi
+          if [[ -z "$NUGET_USER" ]]; then
+            echo "::error::Set the NUGET_USER repository variable to your NuGet username."
+            exit 1
+          fi
+          echo "PACKAGE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Restore
+        run: dotnet restore Injectra.slnx
+
+      - name: Test
+        run: dotnet test Injectra.slnx --configuration Release --no-restore
+
+      - name: Pack
+        run: dotnet pack Lifecycle/Lifecycle.csproj --configuration Release --no-build --no-restore --output publish
+
+      - name: Log in to NuGet
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Publish to NuGet
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: >-
+          dotnet nuget push "publish/Injectra.${PACKAGE_VERSION}.nupkg"
+          --api-key "$NUGET_API_KEY"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      - name: Attach package to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" "publish/Injectra.${PACKAGE_VERSION}.nupkg" --clobber
