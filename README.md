@@ -20,6 +20,8 @@
 Inspired by [VContainer](https://github.com/hadashiA/VContainer), [Zenject](https://github.com/modesttree/Zenject),
 and [Microsoft.Extensions.DependencyInjection](https://github.com/dotnet/runtime/tree/main/src/libraries/Microsoft.Extensions.DependencyInjection).
 
+[Godot addon for Injectra.](https://github.com/UnknownProgers/Injectra.Godot)
+
 Injectra focuses on explicit registration, constructor injection, and predictable lifetimes with a small API. 
 The core is engine-independent C#.
 
