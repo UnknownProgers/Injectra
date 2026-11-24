@@ -6,6 +6,58 @@ namespace Injectra.Core.Tests.Diagnostics;
 public sealed class ContainerDiagnosticsTests
 {
 	[Fact]
+	public void ContainerNamesAreOptionalAndNotInherited()
+	{
+		var builder = new ContainerBuilder("Application");
+		using var root = builder.Build();
+		using var child = root.CreateChild(name: "Level");
+		using var unnamed = child.CreateChild();
+		var snapshot = root.GetDiagnostics();
+
+		Assert.Equal("Application", root.Name);
+		Assert.Equal("Level", child.Name);
+		Assert.Null(unnamed.Name);
+		Assert.Equal("Application", snapshot.Name);
+		Assert.Equal("Level", Assert.Single(snapshot.Children).Name);
+		Assert.Null(Assert.Single(snapshot.Children[0].Children).Name);
+		Assert.Contains("Container #1 (Application)", snapshot.ToString());
+		Assert.Contains("Container #2 (Level)", snapshot.ToString());
+		Assert.Contains("└── Container #3" + Environment.NewLine, snapshot.ToString());
+	}
+
+	[Fact]
+	public void NamedChildSupportsRegistrationAndPreparation()
+	{
+		using var root = new ContainerBuilder().Build();
+		string? nameDuringPreparation = null;
+		using var child = root.CreateChild(local => local.Register<Clock>(Lifetime.Singleton),
+			prepared => nameDuringPreparation = prepared.Name, name: "Level");
+		using var unnamed = root.CreateChild(name: null);
+
+		Assert.Equal("Level", nameDuringPreparation);
+		Assert.NotNull(child.Resolve<Clock>());
+		Assert.Null(unnamed.Name);
+	}
+
+	[Fact]
+	public void ExistingBuilderAndSnapshotConstructorsKeepNullNames()
+	{
+		var builder = new ContainerBuilder();
+		using var container = builder.Build();
+		var snapshot = new ContainerSnapshot(1, null, [], []);
+		var (id, parent, registrations, children) = snapshot;
+
+		Assert.Null(container.Name);
+		Assert.Null(container.GetDiagnostics().Name);
+		Assert.Null(snapshot.Name);
+		Assert.Equal(1, id);
+		Assert.Null(parent);
+		Assert.Empty(registrations);
+		Assert.Empty(children);
+		Assert.Equal("Container #1" + Environment.NewLine, snapshot.ToString());
+	}
+
+	[Fact]
 	public void CaptureDoesNotCreateServicesOrInvokeFactories()
 	{
 		var factoryCalls = 0;

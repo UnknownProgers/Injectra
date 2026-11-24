@@ -11,7 +11,7 @@ public static class DiagnosticTree
 	{
 		ArgumentNullException.ThrowIfNull(snapshot);
 		var text = new StringBuilder();
-		text.AppendLine($"Container #{snapshot.Id}");
+		text.AppendLine(ContainerLabel(snapshot));
 		WriteContainer(snapshot, "");
 		return text.ToString();
 
@@ -30,7 +30,7 @@ public static class DiagnosticTree
 			foreach (var child in container.Children.OrderBy(child => child.Id))
 			{
 				var last = ++index == total;
-				Line(prefix, last, $"Container #{child.Id}");
+				Line(prefix, last, ContainerLabel(child));
 				WriteContainer(child, prefix + (last ? "    " : "│   "));
 			}
 			foreach (var group in groups)
@@ -94,6 +94,10 @@ public static class DiagnosticTree
 
 		void Line(string prefix, bool last, string label) => text.Append(prefix).Append(last ? "└── " : "├── ").AppendLine(label);
 	}
+
+	private static string ContainerLabel(ContainerSnapshot container) => string.IsNullOrEmpty(container.Name)
+		? $"Container #{container.Id}"
+		: $"Container #{container.Id} ({container.Name})";
 
 	private static string RegistrationLabel(RegistrationSnapshot registration)
 	{

@@ -355,6 +355,18 @@ var snapshot = container.GetDiagnostics();
 Console.WriteLine(snapshot.ToString());
 ```
 
+Container names are optional and affect diagnostics only. Existing calls remain unchanged:
+
+```csharp
+var builder = new ContainerBuilder("Application");
+using var root = builder.Build();
+using var level = root.CreateChild(child => child.Register<Player>(Lifetime.Transient), name: "Level");
+Console.WriteLine(root.GetDiagnostics()); // Container #1 (Application), child Container #2 (Level)
+```
+
+Names default to `null`, are specified at creation time, and are not inherited by children.
+They do not have to be unique; unnamed containers keep the `Container #N` label.
+
 The snapshot groups aliases into one registration, lists created singletons and supplied instances first,
 then sorts each group by implementation name. It includes lifetimes, constructor/factory/instance creation,
 ownership, ancestor overrides, and constructor dependency trees with source container IDs.

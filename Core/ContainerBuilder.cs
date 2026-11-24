@@ -12,13 +12,18 @@ public sealed class ContainerBuilder
 	private readonly Container? _parent;
 	private bool _configuringChild;
 
+	private readonly string? _name;
+
 	/// <summary>Creates a builder for a root container.</summary>
-	public ContainerBuilder()
+	/// <param name="name">Optional diagnostic name. Defaults to null.</param>
+	public ContainerBuilder(string? name = null)
 	{
+		_name = name;
 	}
 
-	internal ContainerBuilder(Container parent)
+	internal ContainerBuilder(Container parent, string? name)
 	{
+		_name = name;
 		_parent = parent;
 		_configuringChild = true;
 	}
@@ -119,7 +124,7 @@ public sealed class ContainerBuilder
 		_parent?.ThrowIfDisposed();
 		var registrations = _registrations.Select(draft => draft.Snapshot()).ToArray();
 		var bindings = new Dictionary<RuntimeTypeHandle, Binding[]>();
-		var container = new Container(bindings, _parent);
+		var container = new Container(bindings, _parent, _name);
 		List<Binding>? eager = null;
 		foreach (var registration in registrations)
 		{

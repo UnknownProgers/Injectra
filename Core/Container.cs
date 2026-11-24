@@ -31,8 +31,12 @@ public sealed partial class Container : IResolver, IDisposable
 	internal Action<Container>? ChildBuilt { get; set; }
 	internal Action? Closing { get; set; }
 
-	internal Container(Dictionary<RuntimeTypeHandle, Binding[]> bindings, Container? parent = null)
+	/// <summary>Gets the optional diagnostic name specified by the builder. Null by default.</summary>
+	public string? Name { get; }
+
+	internal Container(Dictionary<RuntimeTypeHandle, Binding[]> bindings, Container? parent = null, string? name = null)
 	{
+		Name = name;
 		_bindings = bindings;
 		_parent = parent;
 		_resolverBindings = [new Binding(typeof(IResolver), Lifetime.Singleton, this) { Owner = this, Prepared = true }];
@@ -40,6 +44,7 @@ public sealed partial class Container : IResolver, IDisposable
 
 	/// <summary>Builds a child container with optional local registrations and inherited parent contracts.</summary>
 	/// <param name="configure">Configures local registrations before the child is built.</param>
+	/// <param name="name">Optional diagnostic name. Defaults to null.</param>
 	/// <returns>A child container owned by this container.</returns>
 	/// <exception cref="ObjectDisposedException">This container was disposed.</exception>
 	/// <exception cref="RegistrationException">The child's registrations or constructor graph are invalid.</exception>
@@ -49,11 +54,12 @@ public sealed partial class Container : IResolver, IDisposable
 	/// Inherited contracts are cached on demand. Singletons retain their owner's context;
 	/// transient graphs are prepared for this child and use its overrides.
 	/// </remarks>
-	public Container CreateChild(Action<ContainerBuilder>? configure = null) => CreateChildCore(configure, null);
+	public Container CreateChild(Action<ContainerBuilder>? configure = null, string? name = null) => CreateChildCore(configure, null, name);
 
 	/// <summary>Builds and prepares a child before notifying lifecycle dispatch.</summary>
 	/// <param name="configure">Optional local service registrations.</param>
 	/// <param name="prepare">Called after eager creation and before lifecycle attachment and initialization.</param>
+	/// <param name="name">Optional diagnostic name. Defaults to null.</param>
 	/// <returns>The prepared child container.</returns>
 	/// <exception cref="ArgumentNullException">The preparation callback is null.</exception>
 	/// <exception cref="ObjectDisposedException">This container or the child has been disposed.</exception>
@@ -64,16 +70,16 @@ public sealed partial class Container : IResolver, IDisposable
 	/// Callback exceptions propagate and dispose the child. Descendants join after their enclosing preparation completes.
 	/// Creation during a lifecycle callback still defers attachment until traversal ends.
 	/// </remarks>
-	public Container CreateChild(Action<ContainerBuilder>? configure, Action<Container> prepare)
+	public Container CreateChild(Action<ContainerBuilder>? configure, Action<Container> prepare, string? name = null)
 	{
 		ArgumentNullException.ThrowIfNull(prepare);
-		return CreateChildCore(configure, prepare);
+		return CreateChildCore(configure, prepare, name);
 	}
 
-	private Container CreateChildCore(Action<ContainerBuilder>? configure, Action<Container>? prepare)
+	private Container CreateChildCore(Action<ContainerBuilder>? configure, Action<Container>? prepare, string? name = null)
 	{
 		ThrowIfDisposed();
-		var builder = new ContainerBuilder(this);
+		var builder = new ContainerBuilder(this, name);
 		configure?.Invoke(builder);
 		var child = builder.BuildChild(prepare);
 		try

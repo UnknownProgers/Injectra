@@ -112,7 +112,7 @@ public sealed class ContainerPreparationTests
 		var builder = new ContainerBuilder();
 		Assert.Throws<ArgumentNullException>(() => builder.Build(null!));
 		using var container = builder.Build();
-		Assert.Throws<ArgumentNullException>(() => container.CreateChild(null, null!));
+		Assert.Throws<ArgumentNullException>(() => container.CreateChild(null, prepare: null!));
 	}
 
 	private sealed class Participant(string name, List<string> events) : IInitializable, IFrameTickable, IDisposable

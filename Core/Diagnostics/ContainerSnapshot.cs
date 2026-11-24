@@ -11,6 +11,9 @@ public sealed record ContainerSnapshot(
 	IReadOnlyList<RegistrationSnapshot> Registrations,
 	IReadOnlyList<ContainerSnapshot> Children)
 {
+	/// <summary>Gets the container's optional diagnostic name at capture time. Null by default.</summary>
+	public string? Name { get; init; }
+
 	/// <summary>Formats this snapshot as a text tree without accessing the live container.</summary>
 	public override string ToString() => DiagnosticTree.Format(this);
 }

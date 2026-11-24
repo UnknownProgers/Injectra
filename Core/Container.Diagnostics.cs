@@ -56,7 +56,7 @@ public sealed partial class Container
 			var sorted = registrations.OrderByDescending(entry => entry.IsCreated)
 				.ThenBy(entry => entry.ImplementationType.FullName, StringComparer.Ordinal).ToArray();
 			return new ContainerSnapshot(_ids[container], container._parent is null ? null : _ids[container._parent],
-				Array.AsReadOnly(sorted), Array.AsReadOnly(container._children.Select(Capture).ToArray()));
+				Array.AsReadOnly(sorted), Array.AsReadOnly(container._children.Select(Capture).ToArray())) { Name = container.Name };
 		}
 
 		private RegistrationSnapshot CaptureRegistration(Container context, Binding binding, List<Type> aliases, Container declaring, bool specialization)
