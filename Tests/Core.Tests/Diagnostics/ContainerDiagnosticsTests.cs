@@ -193,13 +193,74 @@ public sealed class ContainerDiagnosticsTests
 
 		var expected = string.Join(Environment.NewLine,
 			"Container #1",
-			"├── ● IClock → Clock · Singleton · Instance · Created · External",
-			"├── ○ Worker · Transient · Constructor · Registered · Consumer",
-			"│   └── IClock → Clock · Local",
-			"└── Container #2",
-			"    └── ○ FactoryService · Singleton · Factory · Registered · Owned: Container #2",
-			"        └── Dependencies: unknown (factory)", "");
+			"├── Container #2",
+			"│   └── ○ FactoryService · Singleton · Factory · Registered · Owned: Container #2",
+			"│       ├── Contracts: FactoryService",
+			"│       └── Dependencies: unknown (factory)",
+			"├── ● Clock · Singleton · Instance · Created · External",
+			"│   └── Contracts: IClock",
+			"└── ○ Worker · Transient · Constructor · Registered · Consumer",
+			"    ├── Contracts: Worker",
+			"    └── IClock → Clock · Local", "");
 		Assert.Equal(expected, text);
+	}
+
+	[Fact]
+	public void TextSortsDetachedRegistrationsByStateThenImplementationName()
+	{
+		var builder = new ContainerBuilder();
+		builder.Register<Clock>(Lifetime.Singleton);
+		builder.Register<FactoryService>(Lifetime.Singleton);
+		builder.RegisterInstance(new ExternalService());
+		using var container = builder.Build();
+		container.Resolve<FactoryService>();
+		var snapshot = container.GetDiagnostics();
+		var text = (snapshot with { Registrations = snapshot.Registrations.Reverse().ToArray() }).ToString();
+
+		Assert.True(text.IndexOf("● ExternalService", StringComparison.Ordinal) < text.IndexOf("● FactoryService", StringComparison.Ordinal));
+		Assert.True(text.IndexOf("● FactoryService", StringComparison.Ordinal) < text.IndexOf("○ Clock", StringComparison.Ordinal));
+	}
+
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public void TextGroupsGenericContractsWithOrWithoutOpenDefinition(bool openDefinition)
+	{
+		var builder = new ContainerBuilder();
+		if (openDefinition)
+			builder.Register(typeof(Repository<>), Lifetime.Singleton).As(typeof(IRepository<>));
+		else
+			builder.Register<Repository<int>>(Lifetime.Singleton).As<IRepository<int>>();
+		using var container = builder.Build();
+		container.Resolve<IRepository<int>>();
+
+		var text = container.GetDiagnostics().ToString();
+		Assert.Equal(1, text.Split(Environment.NewLine).Count(line => line.EndsWith("── IRepository<>", StringComparison.Ordinal)));
+		Assert.Contains("● Repository<Int32>", text);
+		Assert.Contains("Contracts: IRepository<Int32>", text);
+		if (openDefinition)
+		{
+			Assert.Contains("○ Repository<>", text);
+			Assert.Contains("Dependencies: deferred until generic closure", text);
+			Assert.True(text.IndexOf("● Repository<Int32>", StringComparison.Ordinal) < text.IndexOf("○ Repository<>", StringComparison.Ordinal));
+		}
+	}
+
+	[Fact]
+	public void GenericTextGroupPreservesMultipleImplementationsAndTheirContracts()
+	{
+		var builder = new ContainerBuilder();
+		builder.Register(typeof(Repository<>), Lifetime.Singleton).As(typeof(IRepository<>));
+		builder.Register(typeof(OtherRepository<>), Lifetime.Singleton).As(typeof(IRepository<>));
+		using var container = builder.Build();
+		container.ResolveAll<IRepository<int>>();
+
+		var text = container.GetDiagnostics().ToString();
+		Assert.Contains("○ Repository<>", text);
+		Assert.Contains("○ OtherRepository<>", text);
+		Assert.Contains("● Repository<Int32>", text);
+		Assert.Contains("● OtherRepository<Int32>", text);
+		Assert.Equal(2, text.Split(Environment.NewLine).Count(line => line.Contains("Contracts: IRepository<Int32>", StringComparison.Ordinal)));
 	}
 
 	[Fact]
@@ -295,4 +356,5 @@ public sealed class ContainerDiagnosticsTests
 	public sealed class OwnedService;
 	public interface IRepository<T>;
 	public sealed class Repository<T> : IRepository<T>;
+	public sealed class OtherRepository<T> : IRepository<T>;
 }

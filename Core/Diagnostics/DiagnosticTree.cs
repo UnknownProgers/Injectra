@@ -17,33 +17,60 @@ public static class DiagnosticTree
 
 		void WriteContainer(ContainerSnapshot container, string prefix)
 		{
-			var total = container.Registrations.Count + container.Children.Count;
+			var groups = container.Registrations.Where(registration => GenericContract(registration) is null)
+				.Select(registration => (Family: (Type?)null, Members: new[] { registration }))
+				.Concat(container.Registrations.Where(registration => GenericContract(registration) is not null)
+					.GroupBy(registration => GenericContract(registration))
+					.Select(group => (Family: group.Key, Members: group.ToArray())))
+				.OrderByDescending(group => group.Members.Any(registration => registration.IsCreated))
+				.ThenBy(group => TypeName(group.Family ?? group.Members[0].ImplementationType), StringComparer.OrdinalIgnoreCase)
+				.ToArray();
+			var total = groups.Length + container.Children.Count;
 			var index = 0;
-			foreach (var registration in container.Registrations)
-			{
-				var last = ++index == total;
-				Line(prefix, last, RegistrationLabel(registration));
-				var next = prefix + (last ? "    " : "│   ");
-				WriteDependencies(registration.Dependencies, next, container.Id);
-				if (registration.Activation == ActivationKind.Factory)
-					Line(next, true, "Dependencies: unknown (factory)");
-				else if (registration.ImplementationType.IsGenericTypeDefinition)
-					Line(next, true, "Dependencies: deferred until generic closure");
-			}
-			foreach (var child in container.Children)
+			foreach (var child in container.Children.OrderBy(child => child.Id))
 			{
 				var last = ++index == total;
 				Line(prefix, last, $"Container #{child.Id}");
 				WriteContainer(child, prefix + (last ? "    " : "│   "));
 			}
+			foreach (var group in groups)
+			{
+				var last = ++index == total;
+				if (group.Family is null)
+				{
+					WriteRegistration(group.Members[0], prefix, last, container.Id);
+					continue;
+				}
+				Line(prefix, last, TypeName(group.Family));
+				var members = group.Members.OrderByDescending(registration => registration.IsCreated)
+					.ThenBy(registration => TypeName(registration.ImplementationType), StringComparer.OrdinalIgnoreCase).ToArray();
+				var next = prefix + (last ? "    " : "│   ");
+				for (var i = 0; i < members.Length; i++)
+					WriteRegistration(members[i], next, i == members.Length - 1, container.Id);
+			}
+		}
+
+		void WriteRegistration(RegistrationSnapshot registration, string prefix, bool last, int containerId)
+		{
+			Line(prefix, last, RegistrationLabel(registration));
+			var next = prefix + (last ? "    " : "│   ");
+			var deferred = registration.Activation == ActivationKind.Factory || registration.ImplementationType.IsGenericTypeDefinition;
+			Line(next, registration.Dependencies.Count == 0 && !deferred,
+				$"Contracts: {string.Join(", ", registration.Contracts.Select(TypeName).Order(StringComparer.OrdinalIgnoreCase))}");
+			WriteDependencies(registration.Dependencies, next, containerId);
+			if (registration.Activation == ActivationKind.Factory)
+				Line(next, true, "Dependencies: unknown (factory)");
+			else if (registration.ImplementationType.IsGenericTypeDefinition)
+				Line(next, true, "Dependencies: deferred until generic closure");
 		}
 
 		void WriteDependencies(IReadOnlyList<DependencySnapshot> dependencies, string prefix, int containerId)
 		{
-			for (var i = 0; i < dependencies.Count; i++)
+			var sorted = dependencies.OrderBy(dependency => TypeName(dependency.ImplementationType ?? dependency.ContractType), StringComparer.OrdinalIgnoreCase).ToArray();
+			for (var i = 0; i < sorted.Length; i++)
 			{
-				var dependency = dependencies[i];
-				var last = i == dependencies.Count - 1;
+				var dependency = sorted[i];
+				var last = i == sorted.Length - 1;
 				var label = TypeName(dependency.ContractType);
 				if (dependency.ImplementationType is null)
 					label += dependency.IsAmbiguous ? " · Ambiguous" : " · Missing";
@@ -70,11 +97,7 @@ public static class DiagnosticTree
 
 	private static string RegistrationLabel(RegistrationSnapshot registration)
 	{
-		var contracts = string.Join(", ", registration.Contracts.Select(TypeName));
-		var implementation = TypeName(registration.ImplementationType);
-		var label = $"{(registration.IsCreated ? "●" : "○")} {contracts}";
-		if (registration.Contracts.Count != 1 || registration.Contracts[0] != registration.ImplementationType)
-			label += $" → {implementation}";
+		var label = $"{(registration.IsCreated ? "●" : "○")} {TypeName(registration.ImplementationType)}";
 		label += $" · {registration.Lifetime} · {registration.Activation}";
 		label += registration.IsCreated ? " · Created" : " · Registered";
 		label += registration.Ownership == InstanceOwnership.Container
@@ -86,10 +109,22 @@ public static class DiagnosticTree
 		return label;
 	}
 
+	private static Type? GenericContract(RegistrationSnapshot registration)
+	{
+		var contract = registration.Contracts.Where(type => type.IsGenericType)
+			.OrderByDescending(type => type.IsInterface)
+			.ThenBy(TypeName, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+		return contract?.GetGenericTypeDefinition();
+	}
+
 	private static string TypeName(Type type)
 	{
 		if (!type.IsGenericType)
 			return type.Name;
-		return $"{type.Name[..type.Name.IndexOf('`')]}<{string.Join(", ", type.GetGenericArguments().Select(TypeName))}>";
+		var marker = type.Name.IndexOf('`');
+		var name = marker < 0 ? type.Name : type.Name[..marker];
+		if (type.IsGenericTypeDefinition)
+			return $"{name}<{new string(',', type.GetGenericArguments().Length - 1)}>";
+		return $"{name}<{string.Join(", ", type.GetGenericArguments().Select(TypeName))}>";
 	}
 }

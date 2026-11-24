@@ -358,12 +358,15 @@ Console.WriteLine(snapshot.ToString());
 The snapshot groups aliases into one registration, lists created singletons and supplied instances first,
 then sorts each group by implementation name. It includes lifetimes, constructor/factory/instance creation,
 ownership, ancestor overrides, and constructor dependency trees with source container IDs.
-All registered contracts, including lifecycle interfaces, appear in the contract list.
+The text tree lists child containers first and uses implementation names for registration headings.
+All registered contracts, including lifecycle interfaces, appear on a separate line below each heading.
+Generic registrations and cached specializations are grouped under their open contract, such as `ILogger<>`.
+Groups with created entries come first; entries within each group are sorted created-first, then by name.
 
 Snapshots contain metadata and state, not service instances. They remain usable after the container is disposed.
 Capture and formatting do not resolve services, run factories, prepare inherited graphs, or create generic specializations.
 Transient instances are not tracked; their registrations remain marked as registered even after resolution.
-Factory dependencies are opaque. Open generic definitions are deferred; already cached closed specializations are shown separately.
+Factory dependencies are opaque. Open generic definitions are deferred; already cached closed specializations retain their own entries within the generic group.
 Repeated dependency references are marked instead of expanded indefinitely.
 
 Capture uses the same single-threaded model as the container. Container IDs belong to one capture's hierarchy;
