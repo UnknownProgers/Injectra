@@ -326,7 +326,85 @@ public sealed class ConstructorGeneratorTests
 		Assert.Equal(true, Run(result.Compilation));
 	}
 
-	internal static (Compilation Compilation, string Source) Generate(string source, bool aliasCore = false)
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public void ConstructorFromAnotherGeneratorUsesRuntimeActivation(bool constructorGeneratorFirst)
+	{
+		var result = Generate("""
+		                      using Injectra;
+		                      public sealed class Clock;
+		                      public sealed partial class Service : System.IDisposable
+		                      {
+		                      	public static int Created { get; set; }
+		                      	public static bool Disposed { get; set; }
+		                      	public Clock Clock { get; }
+		                      	public void Dispose() => Disposed = true;
+		                      }
+		                      public static class Entry
+		                      {
+		                      	public static bool Run()
+		                      	{
+		                      		var builder = new ContainerBuilder();
+		                      		builder.Register<Clock>(Lifetime.Singleton);
+		                      		builder.Register<Service>(Lifetime.Singleton).NonLazy();
+		                      		using (var container = builder.Build())
+		                      		{
+		                      			if (Service.Created != 1) return false;
+		                      			if (!ReferenceEquals(container.Resolve<Clock>(), container.Resolve<Service>().Clock)) return false;
+		                      		}
+		                      		return Service.Created == 1 && Service.Disposed;
+		                      	}
+		                      }
+		                      """, additionalGenerator: new ServiceConstructorGenerator().AsSourceGenerator(),
+			constructorGeneratorFirst: constructorGeneratorFirst);
+
+		Assert.DoesNotContain("new global::Service(", result.Source);
+		Assert.Contains("new global::Clock()", result.Source);
+		Assert.Equal(true, Run(result.Compilation));
+	}
+
+	[Theory]
+	[InlineData("public sealed partial class Service;", false)]
+	[InlineData("public sealed partial class Service { public Service() { } }", true)]
+	public void PartialTypeWithExplicitConstructorKeepsGeneratedActivation(string declaration, bool generated)
+	{
+		var result = Generate("""
+		                      using Injectra;
+		                      DECLARATION
+		                      public static class Entry
+		                      {
+		                      	public static bool Run()
+		                      	{
+		                      		var builder = new ContainerBuilder();
+		                      		builder.Register<Service>(Lifetime.Singleton).NonLazy();
+		                      		using var container = builder.Build();
+		                      		return container.Resolve<Service>() is not null;
+		                      	}
+		                      }
+		                      """.Replace("DECLARATION", declaration));
+
+		Assert.Equal(generated, result.Source.Contains("new global::Service()"));
+		Assert.Equal(true, Run(result.Compilation));
+	}
+
+	private sealed class ServiceConstructorGenerator : IIncrementalGenerator
+	{
+		public void Initialize(IncrementalGeneratorInitializationContext context) =>
+			context.RegisterSourceOutput(context.CompilationProvider, static (output, _) => output.AddSource("Service.Constructor.g.cs", """
+			                                                                                                                             public sealed partial class Service
+			                                                                                                                             {
+			                                                                                                                             	public Service(Clock clock)
+			                                                                                                                             	{
+			                                                                                                                             		Clock = clock;
+			                                                                                                                             		Created++;
+			                                                                                                                             	}
+			                                                                                                                             }
+			                                                                                                                             """));
+	}
+
+	internal static (Compilation Compilation, string Source) Generate(string source, bool aliasCore = false,
+		ISourceGenerator? additionalGenerator = null, bool constructorGeneratorFirst = true)
 	{
 		var syntax = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
 		var references = References.Select(reference => aliasCore && reference.Display == typeof(Container).Assembly.Location
@@ -334,16 +412,25 @@ public sealed class ConstructorGeneratorTests
 			: reference);
 		var compilation = CSharpCompilation.Create("GeneratorTest_" + Guid.NewGuid().ToString("N"), [syntax], references,
 			new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, usings: ["System"]));
-		GeneratorDriver driver = CSharpGeneratorDriver.Create([new ConstructorGenerator().AsSourceGenerator()], parseOptions: (CSharpParseOptions)syntax.Options);
+		ISourceGenerator[] generators = additionalGenerator == null
+			? [new ConstructorGenerator().AsSourceGenerator()]
+			: constructorGeneratorFirst
+				? [new ConstructorGenerator().AsSourceGenerator(), additionalGenerator]
+				: [additionalGenerator, new ConstructorGenerator().AsSourceGenerator()];
+		GeneratorDriver driver = CSharpGeneratorDriver.Create(generators, parseOptions: (CSharpParseOptions)syntax.Options);
 		driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var updated, out var diagnostics);
 		Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
 		Assert.Empty(updated.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
-		var trees = driver.GetRunResult().GeneratedTrees;
+		var trees = driver.GetRunResult().Results
+			.SelectMany(result => result.GeneratedSources)
+			.Where(source => source.HintName != "Service.Constructor.g.cs")
+			.Select(source => source.SyntaxTree).ToArray();
 		foreach (var tree in trees)
 		{
 			Assert.DoesNotContain("\r", tree.ToString());
 			Assert.Empty(tree.GetText().Encoding!.GetPreamble());
 		}
+
 		return (updated, string.Join("\n", trees.Select(tree => tree.ToString())));
 	}
 

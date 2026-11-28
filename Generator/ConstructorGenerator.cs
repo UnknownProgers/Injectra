@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
@@ -17,7 +18,8 @@ public sealed class ConstructorGenerator : IIncrementalGenerator
 		var calls = context.SyntaxProvider.CreateSyntaxProvider(
 			static (node, _) => node is InvocationExpressionSyntax invocation &&
 				invocation.Expression is MemberAccessExpressionSyntax member &&
-				member.Name.Identifier.ValueText is KnownNames.RegisterMethod or KnownNames.ResolveMethod or KnownNames.ResolveAllMethod,
+				member.Name.Identifier.ValueText is KnownNames.RegisterMethod or KnownNames.ResolveMethod
+					or KnownNames.ResolveAllMethod,
 			static (syntax, _) => (InvocationExpressionSyntax)syntax.Node);
 
 		context.RegisterSourceOutput(calls.Collect().Combine(context.CompilationProvider), static (output, input) =>
@@ -36,6 +38,12 @@ public sealed class ConstructorGenerator : IIncrementalGenerator
 			return null;
 
 		var constructor = constructors[0];
+		// Another generator may supply a constructor for a partial type later in this compilation.
+		// Leave activation to the runtime instead of assuming its implicit constructor survives.
+		if (constructor.IsImplicitlyDeclared && type.DeclaringSyntaxReferences.Any(reference =>
+			    reference.GetSyntax() is TypeDeclarationSyntax declaration && declaration.Modifiers.Any(SyntaxKind.PartialKeyword)))
+			return null;
+
 		if (constructor.Parameters.Any(parameter => parameter.RefKind != RefKind.None || !CanName(parameter.Type, compilation)))
 			return null;
 
